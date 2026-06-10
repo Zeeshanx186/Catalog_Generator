@@ -1,208 +1,214 @@
+<div align="center">
+
+<img src="docs/banner.png" alt="BOM Manual Downloader" width="100%"/>
+
 # BOM Manual Downloader
 
-A desktop application that automatically downloads datasheets and manuals for every part in a Bill of Materials, then merges them into a single, bookmarked PDF package — ready for engineering handoff.
+**Automatically fetches datasheets for every part in your BOM and merges them into one clean PDF.**
 
-![App Screenshot](docs/screenshot.png)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://github.com)
+[![License](https://img.shields.io/badge/License-MIT-22c55e?style=for-the-badge)](LICENSE)
+[![pywebview](https://img.shields.io/badge/UI-pywebview-f59e0b?style=for-the-badge)](https://pywebview.flowrl.com)
 
----
+<br/>
 
-## What it does
+*Load a BOM → parts are searched & downloaded → everything merges into one ordered PDF*
 
-Give it a BOM file. It reads every part number, searches manufacturer websites and the web, downloads the matching PDF manual, and stitches them into one ordered document — with a cover page, per-part dividers, and "Not Found" placeholders for anything it couldn't locate.
-
-```
-BOM.xlsx  →  [auto-search + download]  →  BOM_Manuals.pdf
-```
-
----
-
-## Features
-
-- **Multiple BOM formats** — PDF, Excel (`.xlsx` / `.xls`), Markdown (`.md`)
-- **Smart search** — DirectProbe hits manufacturer CDNs first, falls back to DuckDuckGo
-- **Concurrent downloads** — configurable worker threads (default: 5)
-- **Merged PDF output** — cover page, per-part divider pages, "Not Found" placeholders
-- **Partial results** — cancel mid-run and still merge whatever was downloaded
-- **Checkbox selection** — choose exactly which found manuals to include in the merge
-- **Standalone PDF merger** — combine any PDFs from your filesystem into one file, with drag-and-drop reordering
-- **Optional paid search backends** — plug in API keys for Google CSE, Bing, Nexar, Mouser, Farnell, and more
-- **Dark UI** — native desktop window via pywebview
+</div>
 
 ---
 
-## Screenshots
+## ✨ Features
 
-| Step | Description |
-|------|-------------|
-| **1 — Input** | Load a BOM file or drag it onto the window |
-| **2 — Parts** | Review extracted parts before downloading |
-| **3 — Download** | Live progress with per-part status |
-| **4 — Results** | Checkboxes to select which manuals to merge |
+<table>
+<tr>
+<td width="50%">
+
+### 📥 Smart Downloading
+- Reads **PDF, Excel (.xlsx/.xls) and Markdown** BOMs
+- Probes manufacturer CDNs directly before falling back to web search
+- **Concurrent downloads** — up to 5 parallel workers by default
+- Live per-part progress (Searching → Found / Not Found)
+
+</td>
+<td width="50%">
+
+### 📄 Professional PDF Output
+- **Cover page** listing every part with Found ✓ / Not Found ✗
+- Per-part **divider pages** for easy navigation
+- Placeholder pages for anything that couldn't be located
+- Cancel mid-run and still merge what was found
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+### ✅ Selective Merging
+- Results page shows **checkboxes** for every found manual
+- Pre-selects all found parts — uncheck anything you don't want
+- Uses exact download paths, never stale files from previous runs
+- Outputs a clean `BOM_Manuals_Selected.pdf`
+
+</td>
+<td width="50%">
+
+### 🔧 Standalone PDF Merger
+- Sidebar tool to merge **any PDFs** from your filesystem
+- Drag-and-drop file list with ↑ ↓ reordering
+- Click to browse or drag files directly onto the drop zone
+- Works independently of any BOM workflow
+
+</td>
+</tr>
+</table>
 
 ---
 
-## Installation
+## 🖥️ Screenshots
 
-### Requirements
+| Input & Parts | Live Download | Results & Merge |
+|:---:|:---:|:---:|
+| ![Input](docs/screen-input.png) | ![Download](docs/screen-download.png) | ![Results](docs/screen-results.png) |
+| Load BOM, review parts | Watch per-part progress live | Select manuals, merge to PDF |
 
-- Python 3.10 or newer
-- Windows (pywebview uses the system WebView2 / Edge runtime)
+---
 
-### Steps
+## 🚀 Getting Started
+
+### Prerequisites
+
+- Python **3.10+**
+- Windows (uses the system WebView2 / Edge runtime via pywebview)
+
+### Install & Run
 
 ```bash
-# 1. Clone the repo
+# Clone
 git clone https://github.com/your-username/BomDownloader.git
 cd BomDownloader
 
-# 2. Install dependencies
+# Install dependencies
 pip install -r requirements.txt
 
-# 3. Run
+# Launch
 python main.py
 ```
 
-### `requirements.txt`
+### Dependencies
 
-```
-pywebview>=4.4.1,<5.0
-requests>=2.31.0
-beautifulsoup4>=4.12.0
-pdfplumber>=0.10.0
-pypdf>=3.17.0
-reportlab>=4.0.0
-openpyxl>=3.1.0
-ddgs>=6.1.0
-```
-
----
-
-## Usage
-
-### Step 1 — Load your BOM
-
-Click **Load BOM** and select a PDF, Excel, or Markdown file. The app will extract manufacturer and part number columns automatically.
-
-Alternatively, click **Load Parts List** to provide a plain CSV/text file of parts directly.
-
-### Step 2 — Review parts
-
-Check the extracted parts list. You can rename or remove rows before proceeding.
-
-### Step 3 — Download
-
-Click **Start Download**. The app searches for each part's datasheet concurrently and shows live status (Found / Not Found / Searching…). You can **Cancel** at any time — partial results are preserved.
-
-### Step 4 — Merge
-
-Once complete, every found manual is pre-checked in the results table.
-
-- **Uncheck** any manuals you don't want to include
-- Click **Merge Selected (N)** to build the PDF
-- Use **Open Merged PDF** or **Save PDF As…** to access the output
+| Package | Purpose |
+|---------|---------|
+| `pywebview` | Native desktop window |
+| `pdfplumber` | Extract text from PDF BOMs |
+| `pypdf` | Merge and manipulate PDFs |
+| `reportlab` | Generate cover, divider & placeholder pages |
+| `openpyxl` | Read Excel BOMs |
+| `requests` + `beautifulsoup4` | Download and scrape manufacturer sites |
+| `ddgs` | DuckDuckGo search (free, no key needed) |
 
 ---
 
-## Output PDF structure
+## 📖 How to Use
 
 ```
-[Cover page]          — lists all parts with Found ✓ / Not Found ✗ / Skipped markers
-  [Divider — Part 001]  RITTAL  8108245
-  [Manual pages]
-  [Divider — Part 002]  HONEYWELL  FC-PDB-0824P
-  [Manual pages]
-  [Divider — Part 003]  MOXA  MB3270I-T
-  [Placeholder]         — "DOCUMENT NOT FOUND — please source manually"
-  ...
+1. Load BOM      →  PDF, Excel, or Markdown file
+2. Review Parts  →  Confirm extracted manufacturers & part numbers
+3. Download      →  Watch progress — cancel any time
+4. Merge         →  Check the manuals you want → click Merge Selected
+```
+
+> **Cancelled a run?** No problem. The Results page still shows everything that was downloaded with checkboxes, so you can merge partial results right away.
+
+---
+
+## 📂 Output Structure
+
+```
+BOM_Manuals_Selected.pdf
+│
+├── [Cover Page]              all 50 parts listed — Found ✓ / Not Found ✗ / Skipped
+│
+├── [Divider]  001  RITTAL  8108245
+├── [Manual pages ...]
+│
+├── [Divider]  002  HONEYWELL  FC-PDB-0824P
+├── [Manual pages ...]
+│
+├── [Divider]  003  MOXA  MB3270I-T
+└── [Placeholder]             "DOCUMENT NOT FOUND — please source manually"
 ```
 
 ---
 
-## PDF Merge Tool
+## 🔑 Optional Search Backends
 
-The sidebar **Merge PDFs** tool lets you combine arbitrary PDFs from your filesystem — independently of any BOM workflow.
+Works out of the box with **DuckDuckGo + DirectProbe** (both free, no setup). For higher hit rates or larger BOMs, add API keys in `bom_downloader.py`:
 
-1. Click the **Layers icon** in the sidebar to open the tool
-2. Drag PDFs onto the drop zone or click **Add More** to browse
-3. Reorder files with the ↑ ↓ buttons
-4. Set an output path and click **Merge PDFs**
+<details>
+<summary><b>Click to expand API key configuration</b></summary>
 
----
+<br/>
 
-## Optional search backends
+| Provider | Variable(s) | Free Tier | Link |
+|----------|-------------|-----------|------|
+| **Nexar** | `NEXAR_CLIENT_ID` / `NEXAR_CLIENT_SECRET` | 1,000 / month | [nexar.com/api](https://nexar.com/api) |
+| **Google CSE** | `GOOGLE_CSE_KEY` / `GOOGLE_CSE_CX` | 100 / day | [console.cloud.google.com](https://console.cloud.google.com) |
+| **Bing Search** | `BING_API_KEY` | 1,000 / month | [Azure Portal](https://portal.azure.com) |
+| **Mouser** | `MOUSER_API_KEY` | Free | [mouser.com/api-hub](https://www.mouser.com/api-hub) |
+| **Farnell / element14** | `FARNELL_API_KEY` | Free | [partner.element14.com](https://partner.element14.com) |
+| **Serper** | `SERPER_API_KEY` | 2,500 / month | [serper.dev](https://serper.dev) |
+| **Tavily** | `TAVILY_API_KEY` | 1,000 / month | [app.tavily.com](https://app.tavily.com) |
+| **Exa** | `EXA_API_KEY` | 1,000 / month | [dashboard.exa.ai](https://dashboard.exa.ai) |
+| **Brave Search** | `BRAVE_API_KEY` | $3 / 1,000 | [brave.com/search/api](https://brave.com/search/api) |
 
-The app works out of the box with DuckDuckGo and direct manufacturer CDN probing (both free, no key needed). For higher hit rates or larger BOMs, add API keys in `bom_downloader.py`:
+Leave any field blank to skip that backend. A built-in circuit breaker disables a backend after 3 consecutive failures so one bad API key doesn't slow down the whole run.
 
-| Backend | Variable | Free tier |
-|---------|----------|-----------|
-| Nexar | `NEXAR_CLIENT_ID` / `NEXAR_CLIENT_SECRET` | 1,000 / month |
-| Google Custom Search | `GOOGLE_CSE_KEY` / `GOOGLE_CSE_CX` | 100 / day |
-| Bing Search | `BING_API_KEY` | 1,000 / month (Azure) |
-| Mouser | `MOUSER_API_KEY` | Free |
-| Farnell / element14 | `FARNELL_API_KEY` | Free |
-| Serper | `SERPER_API_KEY` | 2,500 / month |
-| SerpAPI | `SERPAPI_KEY` | Paid |
-| Tavily | `TAVILY_API_KEY` | 1,000 / month |
-| Exa | `EXA_API_KEY` | 1,000 / month |
-| Brave Search | `BRAVE_API_KEY` | $3 / 1,000 |
-
-Keys are optional — leave any field blank to skip that backend.
+</details>
 
 ---
 
-## Project structure
+## 🗂️ Project Structure
 
 ```
 BomDownloader/
-├── main.py              # App entry point, creates pywebview window
-├── api.py               # Python ↔ JavaScript bridge (all pyapi() calls)
-├── bom_downloader.py    # Core: BOM parsing, search, download, PDF merge
-├── index.html           # Single-file frontend (HTML + CSS + JS)
+├── main.py              ← Entry point — creates the pywebview window
+├── api.py               ← Python ↔ JS bridge (all pyapi() calls from the frontend)
+├── bom_downloader.py    ← Core engine: BOM parsing, search, download, PDF generation
+├── index.html           ← Complete frontend (HTML + CSS + JS, single file)
 └── requirements.txt
 ```
 
-| File | Responsibility |
-|------|---------------|
-| `main.py` | Boots pywebview, resolves paths for dev vs. PyInstaller |
-| `api.py` | Exposes Python methods to the JS frontend; manages download state and progress |
-| `bom_downloader.py` | BOM parsers (PDF/Excel/MD), search engine clients, concurrent downloader, PDF writer |
-| `index.html` | All UI — 4-step workflow, settings panel, PDF merge tool, dark theme |
-
 ---
 
-## Settings
-
-Accessible via the ⚙ icon in the app:
+## ⚙️ Settings
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Output folder | `Documents\BOM Manuals` | Where downloaded files and merged PDFs are saved |
-| Worker threads | 5 | Parallel download connections |
-| Skip merging | Off | Save files only, skip the merge step |
+| Output folder | `Documents\BOM Manuals` | Where files and merged PDFs are saved |
+| Worker threads | `5` | Parallel download connections |
+| Skip merging | `off` | Download only, skip the merge step |
 
 ---
 
-## Supported BOM formats
-
-| Format | How parts are extracted |
-|--------|------------------------|
-| **PDF** | `pdfplumber` text extraction, regex patterns for MFR / P/N columns |
-| **Excel** | `openpyxl` column detection by header keywords |
-| **Markdown** | Table row parsing |
-
----
-
-## Building a standalone executable
+## 📦 Build a Standalone EXE
 
 ```bash
 pip install pyinstaller
 pyinstaller --onefile --windowed --name BomDownloader main.py
 ```
 
-The app uses `sys._MEIPASS` to resolve bundled assets when frozen.
+The app detects `sys._MEIPASS` automatically when frozen, so no extra configuration needed.
 
 ---
 
-## License
+## 📜 License
 
-MIT
+Released under the [MIT License](LICENSE). Free to use, modify, and distribute.
+
+---
+
+<div align="center">
+  <sub>Built with Python · pywebview · pypdf · reportlab · DuckDuckGo</sub>
+</div>
