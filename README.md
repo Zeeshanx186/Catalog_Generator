@@ -1,21 +1,34 @@
 <div align="center">
 
-<img src="docs/banner.png" alt="BOM Manual Downloader" width="100%"/>
+# 📦 BOM Manual Downloader
 
-# BOM Manual Downloader
-
-**Automatically fetches datasheets for every part in your BOM and merges them into one clean PDF.**
+**Automatically fetches datasheets for every part in your Bill of Materials and merges them into one clean, ordered PDF.**
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://github.com)
 [![License](https://img.shields.io/badge/License-MIT-22c55e?style=for-the-badge)](LICENSE)
-[![pywebview](https://img.shields.io/badge/UI-pywebview-f59e0b?style=for-the-badge)](https://pywebview.flowrl.com)
-
-<br/>
-
-*Load a BOM → parts are searched & downloaded → everything merges into one ordered PDF*
+[![UI](https://img.shields.io/badge/UI-pywebview-f59e0b?style=for-the-badge)](https://pywebview.flowrl.com)
+[![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)]()
 
 </div>
+
+---
+
+## 🔄 How It Works
+
+```mermaid
+flowchart LR
+    A(["📄 BOM File\nPDF · Excel · MD"])
+    B(["🔍 Extract Parts\nMFR + Part No."])
+    C(["⚡ Search & Download\n5 concurrent workers"])
+    D(["✅ Found\nPDF saved"])
+    E(["❌ Not Found\nPlaceholder page"])
+    F(["📦 Merge Selected\nBOM_Manuals.pdf"])
+
+    A --> B --> C
+    C --> D --> F
+    C --> E --> F
+```
 
 ---
 
@@ -26,19 +39,19 @@
 <td width="50%">
 
 ### 📥 Smart Downloading
-- Reads **PDF, Excel (.xlsx/.xls) and Markdown** BOMs
-- Probes manufacturer CDNs directly before falling back to web search
-- **Concurrent downloads** — up to 5 parallel workers by default
-- Live per-part progress (Searching → Found / Not Found)
+- Reads **PDF, Excel and Markdown** BOMs
+- Probes manufacturer CDNs directly before web search
+- **Concurrent downloads** — 5 parallel workers by default
+- Live per-part status: Searching → Found / Not Found
 
 </td>
 <td width="50%">
 
 ### 📄 Professional PDF Output
-- **Cover page** listing every part with Found ✓ / Not Found ✗
+- **Cover page** listing every part with ✓ Found / ✗ Not Found
 - Per-part **divider pages** for easy navigation
-- Placeholder pages for anything that couldn't be located
-- Cancel mid-run and still merge what was found
+- "Document Not Found" placeholder pages for missing items
+- Cancel mid-run and still get a usable result
 
 </td>
 </tr>
@@ -46,19 +59,19 @@
 <td width="50%">
 
 ### ✅ Selective Merging
-- Results page shows **checkboxes** for every found manual
-- Pre-selects all found parts — uncheck anything you don't want
-- Uses exact download paths, never stale files from previous runs
+- Results page shows a **checkbox** for every found manual
+- All found parts are pre-checked — uncheck what you don't need
+- Uses exact recorded download paths — never picks up stale files
 - Outputs a clean `BOM_Manuals_Selected.pdf`
 
 </td>
 <td width="50%">
 
-### 🔧 Standalone PDF Merger
-- Sidebar tool to merge **any PDFs** from your filesystem
+### 🔀 Standalone PDF Merger
+- Merge **any PDFs** from your filesystem independently
 - Drag-and-drop file list with ↑ ↓ reordering
-- Click to browse or drag files directly onto the drop zone
-- Works independently of any BOM workflow
+- Drag files onto the drop zone or click to browse
+- Fully separate from the BOM workflow
 
 </td>
 </tr>
@@ -66,88 +79,83 @@
 
 ---
 
-## 🖥️ Screenshots
-
-| Input & Parts | Live Download | Results & Merge |
-|:---:|:---:|:---:|
-| ![Input](docs/screen-input.png) | ![Download](docs/screen-download.png) | ![Results](docs/screen-results.png) |
-| Load BOM, review parts | Watch per-part progress live | Select manuals, merge to PDF |
-
----
-
 ## 🚀 Getting Started
 
 ### Prerequisites
 
-- Python **3.10+**
-- Windows (uses the system WebView2 / Edge runtime via pywebview)
+- Python **3.10** or newer
+- Windows (uses the system WebView2 / Edge runtime)
 
 ### Install & Run
 
 ```bash
-# Clone
+# 1. Clone
 git clone https://github.com/your-username/BomDownloader.git
 cd BomDownloader
 
-# Install dependencies
+# 2. Install dependencies
 pip install -r requirements.txt
 
-# Launch
+# 3. Launch
 python main.py
 ```
 
-### Dependencies
+### `requirements.txt`
 
 | Package | Purpose |
 |---------|---------|
-| `pywebview` | Native desktop window |
-| `pdfplumber` | Extract text from PDF BOMs |
-| `pypdf` | Merge and manipulate PDFs |
-| `reportlab` | Generate cover, divider & placeholder pages |
-| `openpyxl` | Read Excel BOMs |
-| `requests` + `beautifulsoup4` | Download and scrape manufacturer sites |
-| `ddgs` | DuckDuckGo search (free, no key needed) |
+| `pywebview >= 4.4.1, < 5.0` | Native desktop window |
+| `pdfplumber >= 0.10.0` | Extract text from PDF BOMs |
+| `pypdf >= 3.17.0` | Merge and manipulate PDFs |
+| `reportlab >= 4.0.0` | Generate cover, divider & placeholder pages |
+| `openpyxl >= 3.1.0` | Read Excel BOMs |
+| `requests >= 2.31.0` + `beautifulsoup4 >= 4.12.0` | Download & scrape manufacturer sites |
+| `ddgs >= 6.1.0` | DuckDuckGo search — free, no key needed |
 
 ---
 
-## 📖 How to Use
+## 📖 Workflow
 
 ```
-1. Load BOM      →  PDF, Excel, or Markdown file
-2. Review Parts  →  Confirm extracted manufacturers & part numbers
-3. Download      →  Watch progress — cancel any time
-4. Merge         →  Check the manuals you want → click Merge Selected
+┌─────────────────────────────────────────────────────────────┐
+│  Step 1 — Input      Load a PDF, Excel, or Markdown BOM     │
+│  Step 2 — Parts      Review extracted manufacturers & P/Ns  │
+│  Step 3 — Download   Watch live progress, cancel any time   │
+│  Step 4 — Results    Check the manuals you want → Merge     │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-> **Cancelled a run?** No problem. The Results page still shows everything that was downloaded with checkboxes, so you can merge partial results right away.
+> **Cancelled a run?** The Results page still shows everything that was
+> downloaded with checkboxes, so you can merge partial results immediately.
 
 ---
 
-## 📂 Output Structure
+## 📂 Output PDF Structure
 
 ```
 BOM_Manuals_Selected.pdf
 │
-├── [Cover Page]              all 50 parts listed — Found ✓ / Not Found ✗ / Skipped
+├── Cover Page ─────── all parts listed with ✓ Found / ✗ Not Found / Skipped
 │
-├── [Divider]  001  RITTAL  8108245
-├── [Manual pages ...]
+├── ── Part 001 ──  RITTAL  8108245
+│   └── [manual pages]
 │
-├── [Divider]  002  HONEYWELL  FC-PDB-0824P
-├── [Manual pages ...]
+├── ── Part 002 ──  HONEYWELL  FC-PDB-0824P
+│   └── [manual pages]
 │
-├── [Divider]  003  MOXA  MB3270I-T
-└── [Placeholder]             "DOCUMENT NOT FOUND — please source manually"
+└── ── Part 003 ──  MOXA  MB3270I-T
+    └── DOCUMENT NOT FOUND — please source this document manually
 ```
 
 ---
 
 ## 🔑 Optional Search Backends
 
-Works out of the box with **DuckDuckGo + DirectProbe** (both free, no setup). For higher hit rates or larger BOMs, add API keys in `bom_downloader.py`:
+Works out of the box with **DuckDuckGo + DirectProbe** (free, no setup needed).
+For higher hit rates on larger BOMs, add API keys in `bom_downloader.py`:
 
 <details>
-<summary><b>Click to expand API key configuration</b></summary>
+<summary><b>🔧 Click to expand API key configuration</b></summary>
 
 <br/>
 
@@ -163,7 +171,7 @@ Works out of the box with **DuckDuckGo + DirectProbe** (both free, no setup). Fo
 | **Exa** | `EXA_API_KEY` | 1,000 / month | [dashboard.exa.ai](https://dashboard.exa.ai) |
 | **Brave Search** | `BRAVE_API_KEY` | $3 / 1,000 | [brave.com/search/api](https://brave.com/search/api) |
 
-Leave any field blank to skip that backend. A built-in circuit breaker disables a backend after 3 consecutive failures so one bad API key doesn't slow down the whole run.
+Leave any field blank to skip that backend. A built-in **circuit breaker** automatically disables a backend after 3 consecutive failures — one bad API key won't slow down the entire run.
 
 </details>
 
@@ -173,9 +181,9 @@ Leave any field blank to skip that backend. A built-in circuit breaker disables 
 
 ```
 BomDownloader/
-├── main.py              ← Entry point — creates the pywebview window
-├── api.py               ← Python ↔ JS bridge (all pyapi() calls from the frontend)
-├── bom_downloader.py    ← Core engine: BOM parsing, search, download, PDF generation
+├── main.py              ← Entry point — boots the pywebview window
+├── api.py               ← Python ↔ JS bridge (all pyapi() calls)
+├── bom_downloader.py    ← Core engine: BOM parsing, search, download, PDF merge
 ├── index.html           ← Complete frontend (HTML + CSS + JS, single file)
 └── requirements.txt
 ```
@@ -186,20 +194,20 @@ BomDownloader/
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Output folder | `Documents\BOM Manuals` | Where files and merged PDFs are saved |
-| Worker threads | `5` | Parallel download connections |
-| Skip merging | `off` | Download only, skip the merge step |
+| Output folder | `Documents\BOM Manuals` | Where downloads and merged PDFs are saved |
+| Worker threads | `5` | Number of parallel download connections |
+| Skip merging | Off | Download files only, skip the merge step |
 
 ---
 
-## 📦 Build a Standalone EXE
+## 📦 Build a Standalone Executable
 
 ```bash
 pip install pyinstaller
 pyinstaller --onefile --windowed --name BomDownloader main.py
 ```
 
-The app detects `sys._MEIPASS` automatically when frozen, so no extra configuration needed.
+The app uses `sys._MEIPASS` to locate bundled assets automatically when frozen — no extra config needed.
 
 ---
 
