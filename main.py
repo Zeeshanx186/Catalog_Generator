@@ -42,7 +42,7 @@ def main() -> None:
         height=820,
         min_size=(980, 660),
         background_color="#080d18",
-        text_select=False,
+        text_select=True,   # allow selecting/copying text (activity log etc.)
     )
 
     api.window = window

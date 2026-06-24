@@ -1,1308 +1,2421 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BOM Manual Downloader</title>
-<style>
-/* ── Reset & base ─────────────────────────────────────────────────────────── */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BOM Manual Downloader</title>
+  <style>
+    /* ── Reset & base ─────────────────────────────────────────────────────────── */
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
 
-:root {
-  --bg:          #080d18;
-  --surface:     #0f1629;
-  --card:        #131e35;
-  --raised:      #1a2844;
-  --border:      #1e3050;
-  --border-hi:   #2d4875;
-  --accent:      #f59e0b;
-  --accent-glow: rgba(245,158,11,.18);
-  --accent-dim:  rgba(245,158,11,.08);
-  --green:       #10b981;
-  --green-dim:   rgba(16,185,129,.12);
-  --red:         #ef4444;
-  --red-dim:     rgba(239,68,68,.12);
-  --blue:        #3b82f6;
-  --blue-dim:    rgba(59,130,246,.12);
-  --text:        #e2e8f0;
-  --muted:       #64748b;
-  --faint:       #1e293b;
-  --ui:          'Segoe UI', system-ui, -apple-system, sans-serif;
-  --mono:        'Consolas', 'Courier New', monospace;
-  --r:           8px;
-  --r-sm:        4px;
-  --r-lg:        14px;
-}
+    :root {
+      --bg: #080d18;
+      --surface: #0f1629;
+      --card: #131e35;
+      --raised: #1a2844;
+      --border: #1e3050;
+      --border-hi: #2d4875;
+      --accent: #f59e0b;
+      --accent-glow: rgba(245, 158, 11, .18);
+      --accent-dim: rgba(245, 158, 11, .08);
+      --green: #10b981;
+      --green-dim: rgba(16, 185, 129, .12);
+      --red: #ef4444;
+      --red-dim: rgba(239, 68, 68, .12);
+      --blue: #3b82f6;
+      --blue-dim: rgba(59, 130, 246, .12);
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --faint: #1e293b;
+      --ui: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      --mono: 'Consolas', 'Courier New', monospace;
+      --r: 8px;
+      --r-sm: 4px;
+      --r-lg: 14px;
+    }
 
-html, body { height: 100%; overflow: hidden; }
+    html,
+    body {
+      height: 100%;
+      overflow: hidden;
+    }
 
-body {
-  font-family: var(--ui);
-  background: var(--bg);
-  color: var(--text);
-  font-size: 14px;
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
-  user-select: none;
-}
+    body {
+      font-family: var(--ui);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      user-select: none;
+    }
 
-/* ── Layout ──────────────────────────────────────────────────────────────── */
-#app {
-  display: flex;
-  height: 100vh;
-  overflow: hidden;
-}
+    /* ── Layout ──────────────────────────────────────────────────────────────── */
+    #app {
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
 
-/* ── Sidebar ──────────────────────────────────────────────────────────────── */
-#sidebar {
-  width: 240px;
-  flex-shrink: 0;
-  background: var(--surface);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  padding: 24px 0 20px;
-  overflow: hidden;
-}
+    /* ── Sidebar ──────────────────────────────────────────────────────────────── */
+    #sidebar {
+      width: 240px;
+      flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 24px 0 20px;
+      overflow: hidden;
+    }
 
-.logo {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 20px 28px;
-  border-bottom: 1px solid var(--border);
-}
-.logo-icon {
-  width: 34px; height: 34px;
-  background: var(--accent-dim);
-  border: 1px solid rgba(245,158,11,.3);
-  border-radius: var(--r-sm);
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-}
-.logo-icon svg { width: 18px; height: 18px; color: var(--accent); }
-.logo-text { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.3; }
-.logo-sub  { font-size: 10px; color: var(--muted); margin-top: 1px; letter-spacing: .04em; text-transform: uppercase; }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 20px 28px;
+      border-bottom: 1px solid var(--border);
+    }
 
-/* Steps nav */
-.steps-nav { padding: 24px 0; flex: 1; }
-.step-item {
-  display: flex; align-items: flex-start;
-  gap: 12px; padding: 10px 20px;
-  cursor: default; opacity: .4;
-  transition: opacity .2s;
-  position: relative;
-}
-.step-item.active { opacity: 1; }
-.step-item.done   { opacity: .7; }
-.step-item.done .step-num { background: var(--green); border-color: var(--green); color: #fff; }
-.step-item.done .step-num svg { display: block; }
-.step-item.done .step-num span { display: none; }
-.step-item.active .step-num { background: var(--accent); border-color: var(--accent); color: #000; }
+    .logo-icon {
+      width: 34px;
+      height: 34px;
+      background: var(--accent-dim);
+      border: 1px solid rgba(245, 158, 11, .3);
+      border-radius: var(--r-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
 
-.step-connector {
-  position: absolute;
-  left: 36px; top: -10px;
-  width: 1px; height: 10px;
-  background: var(--border);
-}
+    .logo-icon svg {
+      width: 18px;
+      height: 18px;
+      color: var(--accent);
+    }
 
-.step-num {
-  width: 24px; height: 24px; border-radius: 50%;
-  border: 1.5px solid var(--border);
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0; font-size: 11px; font-weight: 700;
-  margin-top: 1px; color: var(--muted);
-  transition: background .2s, border-color .2s, color .2s;
-}
-.step-num svg { display: none; width: 12px; height: 12px; }
-.step-body { flex: 1; }
-.step-title  { font-size: 13px; font-weight: 600; color: var(--text); }
-.step-desc   { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .logo-text {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.3;
+    }
 
-.sidebar-footer {
-  padding: 0 20px;
-  border-top: 1px solid var(--border);
-  padding-top: 16px;
-  font-size: 10px;
-  color: var(--muted);
-  letter-spacing: .03em;
-}
+    .logo-sub {
+      font-size: 10px;
+      color: var(--muted);
+      margin-top: 1px;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
 
-/* ── Main content ─────────────────────────────────────────────────────────── */
-#main {
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-  display: flex;
-  flex-direction: column;
-}
+    /* Steps nav */
+    .steps-nav {
+      padding: 24px 0;
+      flex: 1;
+    }
 
-.panel { display: none; flex-direction: column; flex: 1; padding: 36px 40px; }
-.panel.active { display: flex; }
+    .step-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 10px 20px;
+      cursor: default;
+      opacity: .4;
+      transition: opacity .2s;
+      position: relative;
+    }
 
-/* Panel header */
-.panel-hdr { margin-bottom: 28px; }
-.panel-hdr h1 { font-size: 22px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
-.panel-hdr p  { font-size: 13px; color: var(--muted); }
+    .step-item.active {
+      opacity: 1;
+    }
 
-/* ── Input panel ──────────────────────────────────────────────────────────── */
-.mode-tabs {
-  display: flex; gap: 4px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r);
-  padding: 4px; margin-bottom: 24px;
-  width: fit-content;
-}
-.mode-tab {
-  padding: 7px 20px;
-  border-radius: calc(var(--r) - 2px);
-  font-size: 13px; font-weight: 500;
-  color: var(--muted); cursor: pointer;
-  transition: background .15s, color .15s;
-  border: none; background: none;
-}
-.mode-tab.active {
-  background: var(--accent);
-  color: #000;
-}
+    .step-item.done {
+      opacity: .7;
+    }
 
-/* Drop zone */
-.drop-zone {
-  border: 2px dashed var(--border);
-  border-radius: var(--r-lg);
-  background: var(--surface);
-  padding: 52px 40px;
-  text-align: center;
-  cursor: pointer;
-  transition: border-color .2s, background .2s;
-  position: relative;
-}
-.drop-zone:hover, .drop-zone.drag-over {
-  border-color: var(--accent);
-  background: var(--accent-dim);
-}
-.drop-zone input[type=file] {
-  position: absolute; inset: 0; opacity: 0;
-  cursor: pointer; width: 100%; height: 100%;
-}
-.drop-icon {
-  width: 52px; height: 52px;
-  background: var(--accent-dim);
-  border: 1px solid rgba(245,158,11,.25);
-  border-radius: var(--r);
-  display: flex; align-items: center; justify-content: center;
-  margin: 0 auto 16px;
-}
-.drop-icon svg { width: 26px; height: 26px; color: var(--accent); }
-.drop-title { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
-.drop-sub   { font-size: 13px; color: var(--muted); margin-bottom: 4px; }
-.drop-types { font-size: 11px; color: var(--muted); font-family: var(--mono); }
+    .step-item.done .step-num {
+      background: var(--green);
+      border-color: var(--green);
+      color: #fff;
+    }
 
-.drop-file-info {
-  display: none;
-  align-items: center; gap: 12px;
-  background: var(--green-dim);
-  border: 1px solid rgba(16,185,129,.25);
-  border-radius: var(--r);
-  padding: 14px 18px;
-  margin-top: 16px;
-}
-.drop-file-info.visible { display: flex; }
-.drop-file-icon { color: var(--green); flex-shrink: 0; }
-.drop-file-name { font-size: 13px; font-weight: 600; color: var(--text); }
-.drop-file-meta { font-size: 12px; color: var(--muted); }
+    .step-item.done .step-num svg {
+      display: block;
+    }
 
-/* Parts file template */
-.template-box {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--r);
-  padding: 16px 20px;
-  margin-top: 20px;
-}
-.template-box h4 { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 10px; }
-.template-row { font-family: var(--mono); font-size: 12px; color: var(--text); opacity: .7; line-height: 2; }
-.template-header { font-family: var(--mono); font-size: 12px; color: var(--accent); margin-bottom: 2px; }
+    .step-item.done .step-num span {
+      display: none;
+    }
 
-.action-row { display: flex; gap: 12px; margin-top: 24px; align-items: center; }
+    .step-item.active .step-num {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #000;
+    }
 
-/* ── Buttons ──────────────────────────────────────────────────────────────── */
-.btn {
-  display: inline-flex; align-items: center; gap: 7px;
-  padding: 9px 20px;
-  border-radius: var(--r-sm);
-  font-size: 13px; font-weight: 600;
-  cursor: pointer; border: none;
-  transition: background .15s, box-shadow .15s, opacity .15s;
-  white-space: nowrap;
-}
-.btn:disabled { opacity: .4; cursor: not-allowed; }
-.btn svg { width: 15px; height: 15px; flex-shrink: 0; }
+    .step-connector {
+      position: absolute;
+      left: 36px;
+      top: -10px;
+      width: 1px;
+      height: 10px;
+      background: var(--border);
+    }
 
-.btn-primary {
-  background: var(--accent); color: #000;
-  box-shadow: 0 0 0 0 var(--accent-glow);
-}
-.btn-primary:hover:not(:disabled) {
-  background: #fbbf24;
-  box-shadow: 0 0 20px var(--accent-glow);
-}
-.btn-secondary {
-  background: var(--raised);
-  color: var(--text);
-  border: 1px solid var(--border);
-}
-.btn-secondary:hover:not(:disabled) { background: var(--border); }
-.btn-danger { background: var(--red-dim); color: var(--red); border: 1px solid rgba(239,68,68,.25); }
-.btn-danger:hover:not(:disabled) { background: rgba(239,68,68,.2); }
-.btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
-.btn-ghost:hover:not(:disabled) { color: var(--text); border-color: var(--border-hi); }
-.btn-sm { padding: 6px 12px; font-size: 12px; }
+    .step-num {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      border: 1.5px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      font-size: 11px;
+      font-weight: 700;
+      margin-top: 1px;
+      color: var(--muted);
+      transition: background .2s, border-color .2s, color .2s;
+    }
 
-/* ── Sidebar tools section ────────────────────────────────────────────────── */
-.tools-section {
-  border-top: 1px solid var(--border);
-  padding: 14px 0 8px;
-}
-.tools-section-label {
-  padding: 0 20px 8px;
-  font-size: 10px; font-weight: 600; color: var(--muted);
-  letter-spacing: .08em; text-transform: uppercase;
-}
-.tool-item {
-  display: flex; align-items: center; gap: 12px;
-  padding: 10px 20px; cursor: pointer;
-  border-left: 2px solid transparent;
-  transition: background .15s, border-color .15s;
-}
-.tool-item:hover { background: var(--faint); }
-.tool-item.active { background: var(--accent-dim); border-left-color: var(--accent); }
-.tool-item.active .tool-icon { color: var(--accent); }
-.tool-item.active .step-title { color: var(--accent); }
-.tool-icon {
-  width: 22px; height: 22px;
-  display: flex; align-items: center; justify-content: center;
-  color: var(--muted); flex-shrink: 0;
-}
-.tool-icon svg { width: 15px; height: 15px; }
+    .step-num svg {
+      display: none;
+      width: 12px;
+      height: 12px;
+    }
 
-/* ── Merge panel ──────────────────────────────────────────────────────────── */
-.merge-file-list-inner {
-  display: flex; flex-direction: column; gap: 6px;
-  max-height: 300px; overflow-y: auto; padding-right: 2px;
-}
-.merge-file-item {
-  display: flex; align-items: center; gap: 10px;
-  background: var(--card); border: 1px solid var(--border);
-  border-radius: var(--r); padding: 9px 14px; transition: border-color .15s;
-}
-.merge-file-item:hover { border-color: var(--border-hi); }
-.merge-file-num { font-size: 10px; font-weight: 700; color: var(--muted); min-width: 22px; text-align: right; font-family: var(--mono); }
-.merge-file-name { flex: 1; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.merge-file-path { font-size: 10px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 340px; }
-.merge-file-actions { display: flex; gap: 4px; flex-shrink: 0; }
-.merge-order-btn {
-  width: 26px; height: 26px; border-radius: var(--r-sm);
-  border: 1px solid var(--border); background: transparent; color: var(--muted);
-  cursor: pointer; display: flex; align-items: center; justify-content: center;
-  transition: color .15s, border-color .15s, background .15s;
-}
-.merge-order-btn:hover:not(:disabled) { color: var(--text); border-color: var(--border-hi); background: var(--raised); }
-.merge-order-btn:disabled { opacity: .3; cursor: not-allowed; }
-.merge-order-btn svg { width: 13px; height: 13px; }
-.merge-remove-btn {
-  width: 26px; height: 26px; border-radius: var(--r-sm);
-  border: 1px solid rgba(239,68,68,.2); background: var(--red-dim);
-  color: var(--red); cursor: pointer;
-  display: flex; align-items: center; justify-content: center; transition: background .15s;
-}
-.merge-remove-btn:hover { background: rgba(239,68,68,.2); }
-.merge-remove-btn svg { width: 13px; height: 13px; }
-.merge-empty-state {
-  text-align: center; padding: 28px; color: var(--muted); font-size: 13px;
-  border: 1px dashed var(--border); border-radius: var(--r);
-}
-.merge-output-row { display: flex; align-items: center; gap: 10px; }
-.merge-output-row input {
-  flex: 1; background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--r); padding: 9px 12px; font-size: 13px;
-  color: var(--text); font-family: var(--mono);
-}
-.merge-output-row input:focus { outline: none; border-color: var(--accent); }
-.merge-result-card {
-  background: var(--card); border: 1px solid var(--green);
-  border-radius: var(--r-lg); padding: 20px 24px;
-  display: flex; align-items: center; gap: 16px;
-}
-.merge-result-icon {
-  width: 40px; height: 40px; flex-shrink: 0;
-  background: var(--green-dim); border-radius: 50%;
-  display: flex; align-items: center; justify-content: center;
-}
-.merge-result-icon svg { width: 20px; height: 20px; color: var(--green); }
-.merge-result-info { flex: 1; }
-.merge-result-title { font-size: 15px; font-weight: 600; color: var(--green); margin-bottom: 3px; }
-.merge-result-sub { font-size: 12px; color: var(--muted); }
-.merge-result-actions { display: flex; gap: 8px; }
+    .step-body {
+      flex: 1;
+    }
 
-@keyframes spin { to { transform: rotate(360deg); } }
+    .step-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
 
-/* ── Results table selection ──────────────────────────────────────────────── */
-.res-check {
-  accent-color: var(--accent);
-  width: 14px; height: 14px; cursor: pointer; flex-shrink: 0;
-}
-.res-select-bar {
-  display: flex; align-items: center; gap: 14px;
-  padding: 8px 14px; margin-bottom: 10px;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--r); font-size: 12px; color: var(--muted);
-}
-.res-select-bar strong { color: var(--text); font-weight: 600; }
-.res-select-link {
-  color: var(--accent); cursor: pointer; background: none;
-  border: none; padding: 0; font-size: 12px; font-family: inherit;
-}
-.res-select-link:hover { text-decoration: underline; }
+    .step-desc {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
 
-/* ── Parts panel ─────────────────────────────────────────────────────────── */
-.parts-summary {
-  display: flex; align-items: center; gap: 16px;
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--r);
-  padding: 14px 20px;
-  margin-bottom: 20px;
-}
-.parts-count { font-size: 28px; font-weight: 800; color: var(--accent); font-family: var(--mono); }
-.parts-label { font-size: 13px; color: var(--muted); }
-.parts-filename { font-size: 12px; color: var(--muted); font-family: var(--mono); margin-left: auto; }
+    .sidebar-footer {
+      padding: 0 20px;
+      border-top: 1px solid var(--border);
+      padding-top: 16px;
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: .03em;
+    }
 
-/* Settings accordion */
-.settings-toggle {
-  display: flex; align-items: center; gap: 8px;
-  cursor: pointer; padding: 10px 0; color: var(--muted);
-  font-size: 13px; font-weight: 500;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 16px;
-  transition: color .15s;
-}
-.settings-toggle:hover { color: var(--text); }
-.settings-toggle svg { transition: transform .2s; }
-.settings-toggle.open svg { transform: rotate(90deg); }
-.settings-body { display: none; padding-bottom: 16px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
-.settings-body.open { display: block; }
-.settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.field-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 6px; }
-.field-input {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  color: var(--text);
-  padding: 8px 12px;
-  font-size: 13px;
-  font-family: var(--ui);
-  width: 100%;
-  outline: none;
-  transition: border-color .15s;
-}
-.field-input:focus { border-color: var(--accent); }
-.field-row { display: flex; gap: 8px; }
-.field-row .field-input { flex: 1; }
+    /* ── Main content ─────────────────────────────────────────────────────────── */
+    #main {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      display: flex;
+      flex-direction: column;
+    }
 
-/* Parts table */
-.table-wrap {
-  flex: 1; overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: var(--r);
-  background: var(--surface);
-  margin-bottom: 20px;
-}
-table { width: 100%; border-collapse: collapse; }
-thead th {
-  padding: 10px 14px;
-  text-align: left;
-  font-size: 11px; font-weight: 600;
-  text-transform: uppercase; letter-spacing: .07em;
-  color: var(--muted);
-  background: var(--card);
-  border-bottom: 1px solid var(--border);
-  position: sticky; top: 0; z-index: 1;
-}
-tbody tr { border-bottom: 1px solid var(--faint); transition: background .1s; }
-tbody tr:last-child { border-bottom: none; }
-tbody tr:hover { background: var(--card); }
-tbody td { padding: 8px 14px; font-size: 13px; vertical-align: middle; }
-td.idx    { font-family: var(--mono); color: var(--muted); width: 50px; }
-td.pn     { font-family: var(--mono); font-weight: 600; color: var(--accent); width: 160px; }
-td.mfr    { color: var(--text); width: 180px; }
-td.desc   { color: var(--muted); font-size: 12px; }
-td.actions { width: 60px; text-align: center; }
-.cell-edit {
-  background: none; border: none; color: inherit;
-  font: inherit; width: 100%; outline: none; padding: 3px 6px;
-  border-radius: var(--r-sm);
-}
-.cell-edit:focus {
-  background: var(--raised);
-  border: 1px solid var(--accent);
-}
-.del-btn {
-  background: none; border: none; color: var(--muted);
-  cursor: pointer; padding: 4px; border-radius: var(--r-sm);
-  display: flex; align-items: center; justify-content: center;
-  transition: color .15s, background .15s;
-}
-.del-btn:hover { color: var(--red); background: var(--red-dim); }
-.del-btn svg { width: 14px; height: 14px; }
+    .panel {
+      display: none;
+      flex-direction: column;
+      flex: 1;
+      padding: 36px 40px;
+      width: 100%;
+      max-width: 1240px;
+      margin: 0 auto;
+    }
 
-/* ── Download panel ──────────────────────────────────────────────────────── */
-.progress-header {
-  display: flex; align-items: center; gap: 16px;
-  margin-bottom: 20px;
-}
-.progress-label { font-size: 14px; font-weight: 600; color: var(--text); }
-.progress-fraction { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+    .panel.active {
+      display: flex;
+    }
 
-.progress-bar-wrap {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  height: 6px; flex: 1;
-  overflow: hidden;
-}
-.progress-bar-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--accent), #fbbf24);
-  border-radius: 999px;
-  width: 0%;
-  transition: width .4s ease;
-}
+    /* Panel header */
+    .panel-hdr {
+      margin-bottom: 28px;
+    }
 
-/* Parts grid — 3 adaptive columns, auto-expanding card height */
-.parts-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 8px;
-  margin-bottom: 20px;
-  max-height: 420px;
-  overflow-y: auto;
-  padding-right: 2px;
-}
-.part-card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--r);
-  padding: 10px 12px 10px 15px;
-  position: relative;
-  transition: border-color .2s;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.part-card::before {
-  content: '';
-  position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
-  border-radius: var(--r) 0 0 var(--r);
-  background: var(--border);
-  transition: background .2s;
-}
-.part-card.searching::before { background: var(--accent); }
-.part-card.found::before     { background: var(--green); }
-.part-card.not_found::before { background: var(--red); }
-.part-card.searching { border-color: rgba(245,158,11,.3); }
-.part-card.found     { border-color: rgba(16,185,129,.3); }
-.part-card.not_found { border-color: rgba(239,68,68,.25); }
+    .panel-hdr h1 {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
 
-/* Card header row: status pill + index */
-.card-header {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 4px;
-}
-.card-status {
-  font-size: 9px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: .09em;
-  display: flex; align-items: center; gap: 5px;
-}
-.card-status .dot {
-  width: 6px; height: 6px; border-radius: 50%;
-  background: var(--muted); flex-shrink: 0;
-}
-.card-idx {
-  font-family: var(--mono); font-size: 9px;
-  color: var(--muted); opacity: .6;
-}
+    .panel-hdr p {
+      font-size: 13px;
+      color: var(--muted);
+    }
 
-/* Status colour variants */
-.part-card.pending   .dot { background: var(--muted); }
-.part-card.searching .dot { background: var(--accent); animation: pulse 1.2s infinite; }
-.part-card.found     .dot { background: var(--green); }
-.part-card.not_found .dot { background: var(--red); }
-.part-card.pending   .card-status { color: var(--muted); }
-.part-card.searching .card-status { color: var(--accent); }
-.part-card.found     .card-status { color: var(--green); }
-.part-card.not_found .card-status { color: var(--red); }
+    /* ── Input panel ──────────────────────────────────────────────────────────── */
+    .mode-tabs {
+      display: flex;
+      gap: 4px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 4px;
+      margin-bottom: 24px;
+      width: fit-content;
+    }
 
-/* Part number — full text, wraps cleanly */
-.card-pn {
-  font-family: var(--mono);
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text);
-  word-break: break-word;
-  overflow-wrap: anywhere;
-  line-height: 1.35;
-}
-/* Manufacturer name */
-.card-mfr {
-  font-size: 11px; color: var(--muted);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-/* Short description — only shown when there's space */
-.card-desc {
-  font-size: 10px; color: var(--muted); opacity: .65;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
+    .mode-tab {
+      padding: 7px 20px;
+      border-radius: calc(var(--r) - 2px);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--muted);
+      cursor: pointer;
+      transition: background .15s, color .15s;
+      border: none;
+      background: none;
+    }
 
-/* Inline Open button — part of card flow, not floating */
-.card-open-btn {
-  margin-top: 6px;
-  align-self: flex-start;
-  background: var(--green-dim);
-  border: 1px solid rgba(16,185,129,.3);
-  border-radius: var(--r-sm);
-  color: var(--green);
-  cursor: pointer;
-  padding: 4px 10px;
-  font-size: 10px; font-weight: 600;
-  display: flex; align-items: center; gap: 4px;
-  transition: background .15s;
-}
-.card-open-btn:hover { background: rgba(16,185,129,.22); }
-.card-open-btn svg   { width: 11px; height: 11px; }
+    .mode-tab.active {
+      background: var(--accent);
+      color: #000;
+    }
 
-/* Terminal log */
-.log-panel {
-  flex: 1;
-  background: #050b14;
-  border: 1px solid var(--border);
-  border-radius: var(--r);
-  padding: 12px 16px;
-  overflow-y: auto;
-  font-family: var(--mono);
-  font-size: 11.5px;
-  line-height: 1.7;
-  min-height: 140px;
-  max-height: 220px;
-}
-.log-line { color: #4ade80; opacity: .85; }
-.log-line.err  { color: var(--red); }
-.log-line.warn { color: var(--accent); }
-.log-line.info { color: var(--blue); }
+    /* Drop zone */
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--r-lg);
+      background: var(--surface);
+      padding: 52px 40px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      position: relative;
+    }
 
-/* ── Results panel ───────────────────────────────────────────────────────── */
-.results-stats {
-  display: flex; gap: 12px; margin-bottom: 24px;
-}
-.stat-card {
-  flex: 1; background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--r); padding: 16px 20px;
-  display: flex; align-items: center; gap: 14px;
-}
-.stat-card.green { border-color: rgba(16,185,129,.3); }
-.stat-card.red   { border-color: rgba(239,68,68,.25); }
-.stat-card.amber { border-color: rgba(245,158,11,.3); }
-.stat-num  { font-size: 32px; font-weight: 800; font-family: var(--mono); line-height: 1; }
-.stat-card.green .stat-num { color: var(--green); }
-.stat-card.red   .stat-num { color: var(--red); }
-.stat-card.amber .stat-num { color: var(--accent); }
-.stat-text { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .drop-zone:hover,
+    .drop-zone.drag-over {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+    }
 
-.results-actions {
-  display: flex; gap: 10px; flex-wrap: wrap;
-  margin-bottom: 24px;
-}
+    .drop-zone input[type=file] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
 
-.results-table-wrap {
-  flex: 1; overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: var(--r);
-  background: var(--surface);
-}
-.res-status {
-  display: inline-flex; align-items: center; gap: 5px;
-  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
-  padding: 3px 8px; border-radius: 999px;
-}
-.res-status.found     { color: var(--green); background: var(--green-dim); }
-.res-status.not_found { color: var(--red);   background: var(--red-dim); }
+    .drop-icon {
+      width: 52px;
+      height: 52px;
+      background: var(--accent-dim);
+      border: 1px solid rgba(245, 158, 11, .25);
+      border-radius: var(--r);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 16px;
+    }
 
-/* ── Toasts ──────────────────────────────────────────────────────────────── */
-#toast-container {
-  position: fixed; bottom: 24px; right: 24px;
-  display: flex; flex-direction: column; gap: 8px;
-  z-index: 9999; pointer-events: none;
-}
-.toast {
-  background: var(--raised);
-  border: 1px solid var(--border);
-  border-radius: var(--r);
-  padding: 12px 18px;
-  font-size: 13px; color: var(--text);
-  box-shadow: 0 8px 32px rgba(0,0,0,.5);
-  display: flex; align-items: center; gap: 10px;
-  opacity: 0; transform: translateY(8px);
-  transition: opacity .25s, transform .25s;
-  pointer-events: auto; max-width: 380px;
-}
-.toast.visible  { opacity: 1; transform: translateY(0); }
-.toast svg { flex-shrink: 0; width: 16px; height: 16px; }
-.toast.ok  { border-color: rgba(16,185,129,.35); }
-.toast.ok  svg { color: var(--green); }
-.toast.err { border-color: rgba(239,68,68,.35); }
-.toast.err svg { color: var(--red); }
+    .drop-icon svg {
+      width: 26px;
+      height: 26px;
+      color: var(--accent);
+    }
 
-/* ── Animations ──────────────────────────────────────────────────────────── */
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: .3; }
-}
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+    .drop-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
 
-/* ── Scrollbar ──────────────────────────────────────────────────────────── */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--border-hi); }
-</style>
+    .drop-sub {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .drop-types {
+      font-size: 11px;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+
+    .drop-file-info {
+      display: none;
+      align-items: center;
+      gap: 12px;
+      background: var(--green-dim);
+      border: 1px solid rgba(16, 185, 129, .25);
+      border-radius: var(--r);
+      padding: 14px 18px;
+      margin-top: 16px;
+    }
+
+    .drop-file-info.visible {
+      display: flex;
+    }
+
+    .drop-file-icon {
+      color: var(--green);
+      flex-shrink: 0;
+    }
+
+    .drop-file-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .drop-file-meta {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* Parts file template */
+    .template-box {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 16px 20px;
+      margin-top: 20px;
+    }
+
+    .template-box h4 {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 10px;
+    }
+
+    .template-row {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text);
+      opacity: .7;
+      line-height: 2;
+    }
+
+    .template-header {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--accent);
+      margin-bottom: 2px;
+    }
+
+    .action-row {
+      display: flex;
+      gap: 12px;
+      margin-top: 24px;
+      align-items: center;
+    }
+
+    /* ── Buttons ──────────────────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 9px 20px;
+      border-radius: var(--r-sm);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: background .15s, box-shadow .15s, opacity .15s, transform .08s;
+      white-space: nowrap;
+    }
+
+    .btn:active:not(:disabled) {
+      transform: translateY(1px);
+    }
+
+    .btn:focus-visible,
+    .mode-tab:focus-visible,
+    .del-btn:focus-visible,
+    .card-open-btn:focus-visible,
+    .settings-toggle:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: var(--r-sm);
+    }
+
+    .btn-lg {
+      padding: 11px 26px;
+      font-size: 14px;
+    }
+
+    .btn:disabled {
+      opacity: .4;
+      cursor: not-allowed;
+    }
+
+    .btn svg {
+      width: 15px;
+      height: 15px;
+      flex-shrink: 0;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #000;
+      box-shadow: 0 0 0 0 var(--accent-glow);
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: #fbbf24;
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+
+    .btn-secondary {
+      background: var(--raised);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      background: var(--border);
+    }
+
+    .btn-danger {
+      background: var(--red-dim);
+      color: var(--red);
+      border: 1px solid rgba(239, 68, 68, .25);
+    }
+
+    .btn-danger:hover:not(:disabled) {
+      background: rgba(239, 68, 68, .2);
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+
+    .btn-ghost:hover:not(:disabled) {
+      color: var(--text);
+      border-color: var(--border-hi);
+    }
+
+    .btn-sm {
+      padding: 6px 12px;
+      font-size: 12px;
+    }
+
+    /* ── Parts panel ─────────────────────────────────────────────────────────── */
+    .parts-summary {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 14px 20px;
+      margin-bottom: 20px;
+    }
+
+    .parts-count {
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--accent);
+      font-family: var(--mono);
+    }
+
+    .parts-label {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .parts-filename {
+      font-size: 12px;
+      color: var(--muted);
+      font-family: var(--mono);
+      margin-left: auto;
+    }
+
+    /* Settings accordion */
+    .settings-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      padding: 10px 0;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 500;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 16px;
+      transition: color .15s;
+    }
+
+    .settings-toggle:hover {
+      color: var(--text);
+    }
+
+    .settings-toggle svg {
+      transition: transform .2s;
+    }
+
+    .settings-toggle.open svg {
+      transform: rotate(90deg);
+    }
+
+    .settings-body {
+      display: none;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 16px;
+    }
+
+    .settings-body.open {
+      display: block;
+    }
+
+    .settings-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .field-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .field-input {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      color: var(--text);
+      padding: 8px 12px;
+      font-size: 13px;
+      font-family: var(--ui);
+      width: 100%;
+      outline: none;
+      transition: border-color .15s;
+    }
+
+    .field-input:focus {
+      border-color: var(--accent);
+    }
+
+    .field-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .field-row .field-input {
+      flex: 1;
+    }
+
+    /* Parts table */
+    .table-wrap {
+      flex: 1;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      background: var(--surface);
+      margin-bottom: 20px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    thead th {
+      padding: 10px 14px;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--muted);
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    tbody tr {
+      border-bottom: 1px solid var(--faint);
+      transition: background .1s;
+    }
+
+    tbody tr:last-child {
+      border-bottom: none;
+    }
+
+    tbody tr:hover {
+      background: var(--card);
+    }
+
+    tbody td {
+      padding: 8px 14px;
+      font-size: 13px;
+      vertical-align: middle;
+    }
+
+    td.idx {
+      font-family: var(--mono);
+      color: var(--muted);
+      width: 50px;
+    }
+
+    td.pn {
+      font-family: var(--mono);
+      font-weight: 600;
+      color: var(--accent);
+      width: 160px;
+    }
+
+    td.mfr {
+      color: var(--text);
+      width: 180px;
+    }
+
+    td.desc {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    td.actions {
+      width: 60px;
+      text-align: center;
+    }
+
+    .cell-edit {
+      background: none;
+      border: none;
+      color: inherit;
+      font: inherit;
+      width: 100%;
+      outline: none;
+      padding: 3px 6px;
+      border-radius: var(--r-sm);
+    }
+
+    .cell-edit:focus {
+      background: var(--raised);
+      border: 1px solid var(--accent);
+    }
+
+    .del-btn {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: var(--r-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color .15s, background .15s;
+    }
+
+    .del-btn:hover {
+      color: var(--red);
+      background: var(--red-dim);
+    }
+
+    .del-btn svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    /* ── Download panel ──────────────────────────────────────────────────────── */
+    .progress-header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .progress-label {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .progress-fraction {
+      font-family: var(--mono);
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .progress-bar-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      height: 6px;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), #fbbf24);
+      border-radius: 999px;
+      width: 0%;
+      transition: width .4s ease;
+    }
+
+    /* Parts grid — 3 adaptive columns, auto-expanding card height */
+    .parts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 8px;
+      margin-bottom: 20px;
+      max-height: 420px;
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+
+    .part-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 10px 12px 10px 15px;
+      position: relative;
+      transition: border-color .2s;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .part-card::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      border-radius: var(--r) 0 0 var(--r);
+      background: var(--border);
+      transition: background .2s;
+    }
+
+    .part-card.searching::before {
+      background: var(--accent);
+    }
+
+    .part-card.found::before {
+      background: var(--green);
+    }
+
+    .part-card.not_found::before {
+      background: var(--red);
+    }
+
+    .part-card.searching {
+      border-color: rgba(245, 158, 11, .3);
+    }
+
+    .part-card.found {
+      border-color: rgba(16, 185, 129, .3);
+    }
+
+    .part-card.not_found {
+      border-color: rgba(239, 68, 68, .25);
+    }
+
+    /* Card header row: status pill + index */
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+
+    .card-status {
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .09em;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .card-status .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0;
+    }
+
+    .card-idx {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--muted);
+      opacity: .6;
+    }
+
+    /* Status colour variants */
+    .part-card.pending .dot {
+      background: var(--muted);
+    }
+
+    .part-card.searching .dot {
+      background: var(--accent);
+      animation: pulse 1.2s infinite;
+    }
+
+    .part-card.found .dot {
+      background: var(--green);
+    }
+
+    .part-card.not_found .dot {
+      background: var(--red);
+    }
+
+    .part-card.pending .card-status {
+      color: var(--muted);
+    }
+
+    .part-card.searching .card-status {
+      color: var(--accent);
+    }
+
+    .part-card.found .card-status {
+      color: var(--green);
+    }
+
+    .part-card.not_found .card-status {
+      color: var(--red);
+    }
+
+    /* Part number — full text, wraps cleanly */
+    .card-pn {
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      line-height: 1.35;
+    }
+
+    /* Manufacturer name */
+    .card-mfr {
+      font-size: 11px;
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* Short description — only shown when there's space */
+    .card-desc {
+      font-size: 10px;
+      color: var(--muted);
+      opacity: .65;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* Inline Open button — part of card flow, not floating */
+    .card-open-btn {
+      margin-top: 6px;
+      align-self: flex-start;
+      background: var(--green-dim);
+      border: 1px solid rgba(16, 185, 129, .3);
+      border-radius: var(--r-sm);
+      color: var(--green);
+      cursor: pointer;
+      padding: 4px 10px;
+      font-size: 10px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: background .15s;
+    }
+
+    .card-open-btn:hover {
+      background: rgba(16, 185, 129, .22);
+    }
+
+    .card-open-btn svg {
+      width: 11px;
+      height: 11px;
+    }
+
+    /* Terminal log */
+    .log-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .log-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--muted);
+    }
+
+    .log-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .log-panel {
+      flex: 1;
+      background: #050b14;
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 12px 16px;
+      overflow-y: auto;
+      font-family: var(--mono);
+      font-size: 11.5px;
+      line-height: 1.7;
+      min-height: 160px;
+      max-height: 340px;
+      user-select: text;
+      cursor: text;
+    }
+
+    .log-line {
+      color: #93a8c4;
+      opacity: .92;
+      white-space: pre-wrap;
+      user-select: text;
+    }
+
+    .log-line.ok {
+      color: #34d399;
+    }
+
+    .log-line.err {
+      color: var(--red);
+    }
+
+    .log-line.warn {
+      color: var(--accent);
+    }
+
+    .log-line.info {
+      color: var(--blue);
+    }
+
+    /* ── Results panel ───────────────────────────────────────────────────────── */
+    .results-stats {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      flex: 1;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .stat-card.green {
+      border-color: rgba(16, 185, 129, .3);
+    }
+
+    .stat-card.red {
+      border-color: rgba(239, 68, 68, .25);
+    }
+
+    .stat-card.amber {
+      border-color: rgba(245, 158, 11, .3);
+    }
+
+    .stat-num {
+      font-size: 32px;
+      font-weight: 800;
+      font-family: var(--mono);
+      line-height: 1;
+    }
+
+    .stat-card.green .stat-num {
+      color: var(--green);
+    }
+
+    .stat-card.red .stat-num {
+      color: var(--red);
+    }
+
+    .stat-card.amber .stat-num {
+      color: var(--accent);
+    }
+
+    .stat-text {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    .results-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 24px;
+    }
+
+    .results-table-wrap {
+      flex: 1;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      background: var(--surface);
+    }
+
+    .res-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      padding: 3px 8px;
+      border-radius: 999px;
+    }
+
+    .res-status.found {
+      color: var(--green);
+      background: var(--green-dim);
+    }
+
+    .res-status.not_found {
+      color: var(--red);
+      background: var(--red-dim);
+    }
+
+    /* ── Toasts ──────────────────────────────────────────────────────────────── */
+    #toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 9999;
+      pointer-events: none;
+    }
+
+    .toast {
+      background: var(--raised);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: 12px 18px;
+      font-size: 13px;
+      color: var(--text);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, .5);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity .25s, transform .25s;
+      pointer-events: auto;
+      max-width: 380px;
+    }
+
+    .toast.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .toast svg {
+      flex-shrink: 0;
+      width: 16px;
+      height: 16px;
+    }
+
+    .toast.ok {
+      border-color: rgba(16, 185, 129, .35);
+    }
+
+    .toast.ok svg {
+      color: var(--green);
+    }
+
+    .toast.err {
+      border-color: rgba(239, 68, 68, .35);
+    }
+
+    .toast.err svg {
+      color: var(--red);
+    }
+
+    /* ── Re-search modal ───────────────────────────────────────────────────────── */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 999;
+      background: rgba(3, 6, 12, .72);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 32px;
+    }
+
+    .modal-overlay.visible {
+      display: flex;
+    }
+
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border-hi);
+      border-radius: var(--r-lg);
+      width: min(860px, 100%);
+      max-height: 88vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, .6);
+    }
+
+    .modal-hdr {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 18px 22px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .modal-hdr h2 {
+      font-size: 16px;
+      font-weight: 700;
+      flex: 1;
+    }
+
+    .modal-hdr .pn {
+      font-family: var(--mono);
+      color: var(--accent);
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      padding: 6px;
+      border-radius: var(--r-sm);
+      display: flex;
+    }
+
+    .modal-close:hover {
+      color: var(--text);
+      background: var(--raised);
+    }
+
+    .modal-body {
+      padding: 14px 22px;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .modal-status {
+      font-size: 12.5px;
+      color: var(--muted);
+      padding: 6px 0 12px;
+    }
+
+    .modal-foot {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      padding: 14px 22px;
+      border-top: 1px solid var(--border);
+    }
+
+    .cand-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      background: var(--card);
+      padding: 10px 14px;
+      margin-bottom: 8px;
+    }
+
+    .cand-row.kept {
+      border-color: rgba(16, 185, 129, .45);
+      background: var(--green-dim);
+    }
+
+    .cand-main {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .cand-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      user-select: text;
+    }
+
+    .cand-meta {
+      font-size: 11px;
+      color: var(--muted);
+      font-family: var(--mono);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      user-select: text;
+    }
+
+    .cand-badges {
+      display: flex;
+      gap: 5px;
+      margin-bottom: 3px;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+      padding: 2px 7px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+
+    .badge.official {
+      color: var(--green);
+      border-color: rgba(16, 185, 129, .4);
+      background: var(--green-dim);
+    }
+
+    .badge.suggested {
+      color: var(--accent);
+      border-color: rgba(245, 158, 11, .4);
+      background: var(--accent-dim);
+    }
+
+    .badge.manual {
+      color: var(--blue);
+      border-color: rgba(59, 130, 246, .4);
+      background: var(--blue-dim);
+    }
+
+    .badge.datasheet {
+      color: var(--text);
+      border-color: var(--border-hi);
+      background: var(--raised);
+    }
+
+    .cand-actions {
+      display: flex;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .research-btn {
+      padding: 4px 10px;
+      font-size: 11px;
+    }
+
+    .modal-spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--border-hi);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+
+    /* ── Sidebar tools section ─────────────────────────────────────────────────── */
+    .tools-nav {
+      border-top: 1px solid var(--border);
+      padding: 14px 0 16px;
+    }
+
+    .tools-label {
+      padding: 0 20px 8px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--muted);
+    }
+
+    .tool-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      width: 100%;
+      padding: 10px 20px;
+      background: none;
+      border: none;
+      color: inherit;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+      opacity: .7;
+      transition: opacity .15s, background .15s;
+    }
+
+    .tool-item:hover {
+      opacity: 1;
+      background: var(--card);
+    }
+
+    .tool-item.active {
+      opacity: 1;
+      background: var(--accent-dim);
+      box-shadow: inset 3px 0 0 var(--accent);
+    }
+
+    .tool-item:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+
+    .tool-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: var(--r-sm);
+      background: var(--raised);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .tool-icon svg {
+      width: 13px;
+      height: 13px;
+      color: var(--accent);
+    }
+
+    /* ── Merge tool panel ──────────────────────────────────────────────────────── */
+    .drop-zone.compact {
+      padding: 30px;
+      margin-bottom: 18px;
+    }
+
+    .merge-list-wrap {
+      margin-bottom: 18px;
+    }
+
+    .merge-list-hdr {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .merge-list {
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      background: var(--surface);
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .merge-empty {
+      padding: 22px 18px;
+      font-size: 12.5px;
+      color: var(--muted);
+    }
+
+    .merge-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--faint);
+    }
+
+    .merge-row:last-child {
+      border-bottom: none;
+    }
+
+    .merge-row:hover {
+      background: var(--card);
+    }
+
+    .merge-idx {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      width: 22px;
+      flex-shrink: 0;
+    }
+
+    .merge-name {
+      flex: 1;
+      font-size: 13px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      user-select: text;
+    }
+
+    .merge-row-btns {
+      display: flex;
+      gap: 4px;
+    }
+
+    .row-btn {
+      background: var(--raised);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: var(--r-sm);
+      cursor: pointer;
+      padding: 4px 7px;
+      display: flex;
+      align-items: center;
+      transition: color .15s, background .15s;
+    }
+
+    .row-btn svg {
+      width: 12px;
+      height: 12px;
+    }
+
+    .row-btn:hover:not(:disabled) {
+      color: var(--text);
+      background: var(--border);
+    }
+
+    .row-btn.danger:hover:not(:disabled) {
+      color: var(--red);
+      background: var(--red-dim);
+    }
+
+    .row-btn:disabled {
+      opacity: .3;
+      cursor: not-allowed;
+    }
+
+    .row-btn:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+
+    .merge-output-row {
+      display: flex;
+      margin-bottom: 16px;
+    }
+
+    .merge-result {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      background: var(--green-dim);
+      border: 1px solid rgba(16, 185, 129, .3);
+      border-radius: var(--r);
+      padding: 12px 16px;
+      margin-bottom: 14px;
+      font-size: 13px;
+    }
+
+    .merge-result.visible {
+      display: flex;
+    }
+
+    .merge-result>svg {
+      width: 16px;
+      height: 16px;
+      color: var(--green);
+      flex-shrink: 0;
+    }
+
+    .merge-result span {
+      flex: 1;
+      user-select: text;
+    }
+
+    /* Results selection checkboxes */
+    .res-check,
+    #res-check-all {
+      width: 15px;
+      height: 15px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    /* ── Sticky action bar — primary actions always reachable ─────────────────── */
+    .action-bar {
+      position: sticky;
+      bottom: 0;
+      z-index: 6;
+      margin-top: auto;
+      padding: 14px 0 4px;
+      background: linear-gradient(180deg, rgba(8, 13, 24, 0), var(--bg) 32%);
+      border-top: 1px solid var(--border);
+    }
+
+    /* ── Selectable output text (log, results, filenames) ─────────────────────── */
+    #results-tbody td,
+    .drop-file-name,
+    .parts-filename,
+    .card-pn {
+      user-select: text;
+    }
+
+    /* ── Stat icons ──────────────────────────────────────────────────────────── */
+    .stat-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .stat-icon svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .stat-card.green .stat-icon {
+      background: var(--green-dim);
+      color: var(--green);
+    }
+
+    .stat-card.red .stat-icon {
+      background: var(--red-dim);
+      color: var(--red);
+    }
+
+    .stat-card.amber .stat-icon {
+      background: var(--accent-dim);
+      color: var(--accent);
+    }
+
+    /* ── Animations ──────────────────────────────────────────────────────────── */
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: .3;
+      }
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    /* ── Scrollbar ──────────────────────────────────────────────────────────── */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--border-hi);
+    }
+  </style>
 </head>
+
 <body>
-<div id="app">
+  <div id="app">
 
-  <!-- ── Sidebar ──────────────────────────────────────────────────────────── -->
-  <aside id="sidebar">
-    <div class="logo">
-      <div class="logo-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-          <polyline points="14 2 14 8 20 8"/>
-          <line x1="16" y1="13" x2="8" y2="13"/>
-          <line x1="16" y1="17" x2="8" y2="17"/>
-          <polyline points="10 9 9 9 8 9"/>
-        </svg>
-      </div>
-      <div>
-        <div class="logo-text">BOM Downloader</div>
-        <div class="logo-sub">Manual Package Builder</div>
-      </div>
-    </div>
-
-    <nav class="steps-nav">
-      <div class="step-item active" id="nav-0">
-        <div class="step-num">
-          <span>1</span>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
-        </div>
-        <div class="step-body">
-          <div class="step-title">Input</div>
-          <div class="step-desc">Load BOM or parts file</div>
-        </div>
-      </div>
-      <div class="step-item" id="nav-1">
-        <div class="step-connector"></div>
-        <div class="step-num">
-          <span>2</span>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
-        </div>
-        <div class="step-body">
-          <div class="step-title">Parts</div>
-          <div class="step-desc">Review &amp; configure</div>
-        </div>
-      </div>
-      <div class="step-item" id="nav-2">
-        <div class="step-connector"></div>
-        <div class="step-num">
-          <span>3</span>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
-        </div>
-        <div class="step-body">
-          <div class="step-title">Download</div>
-          <div class="step-desc">Fetch manuals</div>
-        </div>
-      </div>
-      <div class="step-item" id="nav-3">
-        <div class="step-connector"></div>
-        <div class="step-num">
-          <span>4</span>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
-        </div>
-        <div class="step-body">
-          <div class="step-title">Results</div>
-          <div class="step-desc">Save merged PDF</div>
-        </div>
-      </div>
-    </nav>
-
-    <!-- Tools section -->
-    <div class="tools-section">
-      <div class="tools-section-label">Tools</div>
-      <div class="tool-item" id="nav-merge" onclick="goToMerge()">
-        <div class="tool-icon">
+    <!-- ── Sidebar ──────────────────────────────────────────────────────────── -->
+    <aside id="sidebar">
+      <div class="logo">
+        <div class="logo-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polygon points="12 2 2 7 12 12 22 7 12 2"/>
-            <polyline points="2 17 12 22 22 17"/>
-            <polyline points="2 12 12 17 22 12"/>
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="16" y1="13" x2="8" y2="13" />
+            <line x1="16" y1="17" x2="8" y2="17" />
+            <polyline points="10 9 9 9 8 9" />
           </svg>
         </div>
-        <div class="step-body">
-          <div class="step-title">Merge PDFs</div>
-          <div class="step-desc">Combine PDF files</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="sidebar-footer">v1.0.0 &nbsp;·&nbsp; BOM Manual Downloader</div>
-  </aside>
-
-  <!-- ── Main content ──────────────────────────────────────────────────────── -->
-  <main id="main">
-
-    <!-- ══ Panel 1: Input ═══════════════════════════════════════════════════ -->
-    <section class="panel active" id="panel-input">
-      <div class="panel-hdr">
-        <h1>Load Your Parts</h1>
-        <p>Drop a BOM document or a structured parts file to get started.</p>
-      </div>
-
-      <!-- Mode tabs -->
-      <div class="mode-tabs">
-        <button class="mode-tab active" id="tab-bom" onclick="switchMode('bom')">BOM File</button>
-        <button class="mode-tab" id="tab-parts" onclick="switchMode('parts')">Parts File</button>
-      </div>
-
-      <!-- BOM drop zone -->
-      <div id="mode-bom">
-        <div class="drop-zone" id="drop-bom"
-             ondragover="onDragOver(event,'drop-bom')"
-             ondragleave="onDragLeave(event,'drop-bom')"
-             ondrop="onDrop(event,'bom')">
-          <input type="file" id="file-bom"
-                 accept=".pdf,.xlsx,.xls,.md,.txt"
-                 onchange="onFileInput(event,'bom')">
-          <div class="drop-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/>
-              <line x1="16" y1="13" x2="8" y2="13"/>
-              <line x1="16" y1="17" x2="8" y2="17"/>
-            </svg>
-          </div>
-          <div class="drop-title">Drop your BOM file here</div>
-          <div class="drop-sub">or click to browse</div>
-          <div class="drop-types">PDF &nbsp;·&nbsp; XLSX / XLS &nbsp;·&nbsp; Markdown &nbsp;·&nbsp; TXT</div>
-        </div>
-        <div class="drop-file-info" id="bom-file-info">
-          <svg class="drop-file-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-          <div>
-            <div class="drop-file-name" id="bom-file-name">—</div>
-            <div class="drop-file-meta" id="bom-file-meta">—</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Parts file drop zone -->
-      <div id="mode-parts" style="display:none">
-        <div class="drop-zone" id="drop-parts"
-             ondragover="onDragOver(event,'drop-parts')"
-             ondragleave="onDragLeave(event,'drop-parts')"
-             ondrop="onDrop(event,'parts')">
-          <input type="file" id="file-parts"
-                 accept=".csv,.xlsx,.xls,.txt"
-                 onchange="onFileInput(event,'parts')">
-          <div class="drop-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-              <line x1="3" y1="9" x2="21" y2="9"/>
-              <line x1="3" y1="15" x2="21" y2="15"/>
-              <line x1="9" y1="3" x2="9" y2="21"/>
-            </svg>
-          </div>
-          <div class="drop-title">Drop your parts file here</div>
-          <div class="drop-sub">or click to browse</div>
-          <div class="drop-types">CSV &nbsp;·&nbsp; XLSX / XLS</div>
-        </div>
-        <div class="template-box">
-          <h4>Expected format</h4>
-          <div class="template-header">Manufacturer, Part Number, Description</div>
-          <div class="template-row">ALLEN BRADLEY, 1756-EN2T, ControlLogix EtherNet/IP Bridge</div>
-          <div class="template-row">RITTAL, 8808000, AX Enclosure 600x600x210</div>
-          <div class="template-row">PHOENIX CONTACT, 2902516, COMBICON connector 3-pos</div>
-        </div>
-        <div class="drop-file-info" id="parts-file-info">
-          <svg class="drop-file-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-          <div>
-            <div class="drop-file-name" id="parts-file-name">—</div>
-            <div class="drop-file-meta" id="parts-file-meta">—</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="action-row">
-        <button class="btn btn-primary" id="btn-next-input" onclick="goToParts()" disabled>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
-          Review Parts
-        </button>
-        <span id="input-status" style="font-size:13px;color:var(--muted);"></span>
-      </div>
-    </section>
-
-    <!-- ══ Panel 2: Parts review ═════════════════════════════════════════════ -->
-    <section class="panel" id="panel-parts">
-      <div class="panel-hdr">
-        <h1>Review Parts</h1>
-        <p>Edit, add or remove parts before downloading. Configure output settings below.</p>
-      </div>
-
-      <div class="parts-summary">
-        <div class="parts-count" id="parts-count">0</div>
         <div>
-          <div style="font-size:14px;font-weight:600;">parts ready</div>
-          <div class="parts-label">Review before starting the download</div>
+          <div class="logo-text">BOM Downloader</div>
+          <div class="logo-sub">Manual Package Builder</div>
         </div>
-        <div class="parts-filename" id="parts-source-file"></div>
       </div>
 
-      <!-- Settings accordion -->
-      <div class="settings-toggle" id="settings-toggle" onclick="toggleSettings()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
-        <span>Download settings</span>
+      <nav class="steps-nav">
+        <div class="step-item active" id="nav-0">
+          <div class="step-num">
+            <span>1</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </div>
+          <div class="step-body">
+            <div class="step-title">Input</div>
+            <div class="step-desc">Load BOM or parts file</div>
+          </div>
+        </div>
+        <div class="step-item" id="nav-1">
+          <div class="step-connector"></div>
+          <div class="step-num">
+            <span>2</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </div>
+          <div class="step-body">
+            <div class="step-title">Parts</div>
+            <div class="step-desc">Review &amp; configure</div>
+          </div>
+        </div>
+        <div class="step-item" id="nav-2">
+          <div class="step-connector"></div>
+          <div class="step-num">
+            <span>3</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </div>
+          <div class="step-body">
+            <div class="step-title">Download</div>
+            <div class="step-desc">Fetch manuals</div>
+          </div>
+        </div>
+        <div class="step-item" id="nav-3">
+          <div class="step-connector"></div>
+          <div class="step-num">
+            <span>4</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </div>
+          <div class="step-body">
+            <div class="step-title">Results</div>
+            <div class="step-desc">Save merged PDF</div>
+          </div>
+        </div>
+      </nav>
+
+      <div class="tools-nav">
+        <div class="tools-label">Tools</div>
+        <button class="tool-item" id="nav-merge" onclick="openMergeTool()"
+          title="Combine any PDF files into one document">
+          <div class="tool-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M8 7h12M8 12h12M8 17h12" />
+              <path d="M4 7h.01M4 12h.01M4 17h.01" />
+            </svg>
+          </div>
+          <div class="step-body">
+            <div class="step-title">Merge PDFs</div>
+            <div class="step-desc">Combine any PDFs into one</div>
+          </div>
+        </button>
       </div>
-      <div class="settings-body" id="settings-body">
-        <div class="settings-grid">
-          <div>
-            <div class="field-label">Output folder</div>
-            <div class="field-row">
-              <input class="field-input" id="set-folder" type="text" placeholder="C:\Users\...\Documents\BOM Manuals" readonly>
-              <button class="btn btn-secondary btn-sm" onclick="browseFolder()">Browse</button>
+
+      <div class="sidebar-footer">v1.1.0 &nbsp;·&nbsp; Verified manual downloads</div>
+    </aside>
+
+    <!-- ── Main content ──────────────────────────────────────────────────────── -->
+    <main id="main">
+
+      <!-- ══ Panel 1: Input ═══════════════════════════════════════════════════ -->
+      <section class="panel active" id="panel-input">
+        <div class="panel-hdr">
+          <h1>Load Your Parts</h1>
+          <p>Drop a BOM document or a structured parts file to get started.</p>
+        </div>
+
+        <!-- Mode tabs -->
+        <div class="mode-tabs">
+          <button class="mode-tab active" id="tab-bom" onclick="switchMode('bom')">BOM File</button>
+          <button class="mode-tab" id="tab-parts" onclick="switchMode('parts')">Parts File</button>
+        </div>
+
+        <!-- BOM drop zone -->
+        <div id="mode-bom">
+          <div class="drop-zone" id="drop-bom" ondragover="onDragOver(event,'drop-bom')"
+            ondragleave="onDragLeave(event,'drop-bom')" ondrop="onDrop(event,'bom')">
+            <input type="file" id="file-bom" accept=".pdf,.xlsx,.xls,.md,.txt" onchange="onFileInput(event,'bom')">
+            <div class="drop-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="16" y1="13" x2="8" y2="13" />
+                <line x1="16" y1="17" x2="8" y2="17" />
+              </svg>
+            </div>
+            <div class="drop-title">Drop your BOM file here</div>
+            <div class="drop-sub">or click to browse</div>
+            <div class="drop-types">PDF &nbsp;·&nbsp; XLSX / XLS &nbsp;·&nbsp; Markdown &nbsp;·&nbsp; TXT</div>
+          </div>
+          <div class="drop-file-info" id="bom-file-info">
+            <svg class="drop-file-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            <div>
+              <div class="drop-file-name" id="bom-file-name">—</div>
+              <div class="drop-file-meta" id="bom-file-meta">—</div>
             </div>
           </div>
-          <div>
-            <div class="field-label">Max PDFs per part</div>
-            <input class="field-input" id="set-max" type="number" min="1" max="5" value="1">
+        </div>
+
+        <!-- Parts file drop zone -->
+        <div id="mode-parts" style="display:none">
+          <div class="drop-zone" id="drop-parts" ondragover="onDragOver(event,'drop-parts')"
+            ondragleave="onDragLeave(event,'drop-parts')" ondrop="onDrop(event,'parts')">
+            <input type="file" id="file-parts" accept=".csv,.xlsx,.xls,.txt" onchange="onFileInput(event,'parts')">
+            <div class="drop-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                <line x1="3" y1="9" x2="21" y2="9" />
+                <line x1="3" y1="15" x2="21" y2="15" />
+                <line x1="9" y1="3" x2="9" y2="21" />
+              </svg>
+            </div>
+            <div class="drop-title">Drop your parts file here</div>
+            <div class="drop-sub">or click to browse</div>
+            <div class="drop-types">CSV &nbsp;·&nbsp; XLSX / XLS</div>
           </div>
-          <div>
-            <div class="field-label">Parallel workers</div>
-            <input class="field-input" id="set-workers" type="number" min="1" max="20" value="5">
+          <div class="template-box">
+            <h4>Expected format</h4>
+            <div class="template-header">Manufacturer, Part Number, Description</div>
+            <div class="template-row">ALLEN BRADLEY, 1756-EN2T, ControlLogix EtherNet/IP Bridge</div>
+            <div class="template-row">RITTAL, 8808000, AX Enclosure 600x600x210</div>
+            <div class="template-row">PHOENIX CONTACT, 2902516, COMBICON connector 3-pos</div>
           </div>
-          <div>
-            <div class="field-label">Options</div>
-            <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);cursor:pointer;padding-top:8px;">
-              <input type="checkbox" id="set-nomerge" style="accent-color:var(--accent);">
-              Skip merging into single PDF
-            </label>
+          <div class="drop-file-info" id="parts-file-info">
+            <svg class="drop-file-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            <div>
+              <div class="drop-file-name" id="parts-file-name">—</div>
+              <div class="drop-file-meta" id="parts-file-meta">—</div>
+            </div>
           </div>
         </div>
-      </div>
 
-      <!-- Parts table -->
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th style="width:50px">#</th>
-              <th style="width:180px">Manufacturer</th>
-              <th style="width:160px">Part Number</th>
-              <th>Description</th>
-              <th style="width:60px"></th>
-            </tr>
-          </thead>
-          <tbody id="parts-tbody"></tbody>
-        </table>
-      </div>
-
-      <div class="action-row">
-        <button class="btn btn-ghost" onclick="goTo(0)">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
-          Back
-        </button>
-        <button class="btn btn-secondary btn-sm" onclick="addPartRow()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Add part
-        </button>
-        <div style="flex:1"></div>
-        <button class="btn btn-primary" id="btn-start" onclick="startDownload()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-          Start Download
-        </button>
-      </div>
-    </section>
-
-    <!-- ══ Panel 3: Download progress ════════════════════════════════════════ -->
-    <section class="panel" id="panel-download">
-      <div class="panel-hdr">
-        <h1>Downloading Manuals</h1>
-        <p id="dl-subtitle">Searching and fetching PDF documents for each part…</p>
-      </div>
-
-      <div class="progress-header">
-        <span class="progress-label" id="dl-label">Starting…</span>
-        <div class="progress-bar-wrap">
-          <div class="progress-bar-fill" id="dl-bar"></div>
+        <div class="action-row">
+          <button class="btn btn-primary" id="btn-next-input" onclick="goToParts()" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+            Review Parts
+          </button>
+          <span id="input-status" style="font-size:13px;color:var(--muted);"></span>
         </div>
-        <span class="progress-fraction" id="dl-fraction">0 / 0</span>
-      </div>
+      </section>
 
-      <div class="parts-grid" id="dl-grid"></div>
-
-      <div style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;">
-        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);">Activity log</span>
-        <button class="btn btn-ghost btn-sm" onclick="clearLog()">Clear</button>
-      </div>
-      <div class="log-panel" id="log-panel"></div>
-
-      <div class="action-row" style="margin-top:16px;">
-        <button class="btn btn-danger" id="btn-cancel" onclick="cancelDownload()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
-          Stop &amp; View Results
-        </button>
-        <button class="btn btn-secondary" id="btn-open-folder-dl" onclick="openDownloadsFolder()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-          Open Downloads Folder
-        </button>
-      </div>
-    </section>
-
-    <!-- ══ Panel 4: Results ══════════════════════════════════════════════════ -->
-    <section class="panel" id="panel-results">
-      <div class="panel-hdr">
-        <h1 id="res-title">Done</h1>
-        <p id="res-subtitle">Your manuals package is ready.</p>
-      </div>
-
-      <div class="results-stats">
-        <div class="stat-card green">
-          <div class="stat-num" id="res-found">0</div>
-          <div><div style="font-weight:600;font-size:13px;">Found</div><div class="stat-text">Manuals downloaded</div></div>
+      <!-- ══ Panel 2: Parts review ═════════════════════════════════════════════ -->
+      <section class="panel" id="panel-parts">
+        <div class="panel-hdr">
+          <h1>Review Parts</h1>
+          <p>Edit, add or remove parts before downloading. Configure output settings below.</p>
         </div>
-        <div class="stat-card red">
-          <div class="stat-num" id="res-notfound">0</div>
-          <div><div style="font-weight:600;font-size:13px;">Not found</div><div class="stat-text">Placeholders inserted</div></div>
-        </div>
-        <div class="stat-card amber">
-          <div class="stat-num" id="res-total">0</div>
-          <div><div style="font-weight:600;font-size:13px;">Total</div><div class="stat-text">Parts processed</div></div>
-        </div>
-      </div>
 
-      <div class="results-actions" id="results-actions">
-        <button class="btn btn-primary" id="btn-open-pdf" onclick="openPdf()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-          Open Merged PDF
-        </button>
-        <button class="btn btn-secondary" id="btn-save-pdf" onclick="savePdfAs()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-          Save PDF As…
-        </button>
-        <button class="btn btn-primary" id="btn-merge-partial" onclick="mergeSelected()" style="display:none;">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;margin-right:6px;">
-            <polygon points="12 2 2 7 12 12 22 7 12 2"/>
-            <polyline points="2 17 12 22 22 17"/>
-            <polyline points="2 12 12 17 22 12"/>
+        <div class="parts-summary">
+          <div class="parts-count" id="parts-count">0</div>
+          <div>
+            <div style="font-size:14px;font-weight:600;">parts ready</div>
+            <div class="parts-label">Review before starting the download</div>
+          </div>
+          <div class="parts-filename" id="parts-source-file"></div>
+        </div>
+
+        <!-- Settings accordion -->
+        <div class="settings-toggle" id="settings-toggle" onclick="toggleSettings()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polyline points="9 18 15 12 9 6" />
           </svg>
-          <span id="btn-merge-partial-label">Merge Selected</span>
-        </button>
-        <button class="btn btn-secondary" onclick="openFolder()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-          Open Folder
-        </button>
-        <button class="btn btn-ghost" onclick="startOver()">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.51"/></svg>
-          Start Over
-        </button>
-      </div>
-
-      <div class="results-table-wrap">
-        <!-- Selection bar — shown only when checkboxes are active -->
-        <div class="res-select-bar" id="res-select-bar" style="display:none;">
-          <strong id="res-select-count">0 selected</strong>
-          <button class="res-select-link" onclick="toggleSelectAll(true)">Select all</button>
-          <button class="res-select-link" onclick="toggleSelectAll(false)">Select none</button>
+          <span>Download settings</span>
         </div>
-        <table>
-          <thead>
-            <tr>
-              <th style="width:36px;text-align:center;" id="res-th-check" title="Select / deselect all found">
-                <input type="checkbox" class="res-check" id="res-select-all-hdr"
-                       onchange="toggleSelectAll(this.checked)">
-              </th>
-              <th style="width:50px">#</th>
-              <th style="width:180px">Manufacturer</th>
-              <th style="width:160px">Part Number</th>
-              <th>Description</th>
-              <th style="width:110px">Status</th>
-              <th style="width:90px">File</th>
-            </tr>
-          </thead>
-          <tbody id="results-tbody"></tbody>
-        </table>
-      </div>
-    </section>
+        <div class="settings-body" id="settings-body">
+          <div class="settings-grid">
+            <div>
+              <div class="field-label">Output folder</div>
+              <div class="field-row">
+                <input class="field-input" id="set-folder" type="text" placeholder="C:\Users\...\Documents\BOM Manuals"
+                  readonly>
+                <button class="btn btn-secondary btn-sm" onclick="browseFolder()">Browse</button>
+              </div>
+            </div>
+            <div>
+              <div class="field-label">My catalog <span style="color:var(--muted);font-weight:400;">(optional —
+                  OneDrive/Google Drive share link or local folder; separate several with ;)</span></div>
+              <div class="field-row">
+                <input class="field-input" id="set-catalog" type="text"
+                  placeholder="https://drive.google.com/drive/folders/…  or  https://1drv.ms/f/…  or  D:\Manuals">
+                <button class="btn btn-secondary btn-sm" onclick="browseCatalogFolder()"
+                  title="Pick a local folder (for share links, just paste them)">Browse</button>
+              </div>
+            </div>
+            <div>
+              <div class="field-label">Max PDFs per part</div>
+              <input class="field-input" id="set-max" type="number" min="1" max="5" value="1">
+            </div>
+            <div>
+              <div class="field-label">Parallel workers</div>
+              <input class="field-input" id="set-workers" type="number" min="1" max="20" value="5">
+            </div>
+            <div>
+              <div class="field-label">Custom Logo <span style="color:var(--muted);font-weight:400;">(optional —
+                  replaces default logos)</span></div>
+              <div class="field-row">
+                <input class="field-input" id="set-logo" type="text" placeholder="Using default logos" readonly>
+                <button class="btn btn-secondary btn-sm" onclick="browseLogoFile()">Browse</button>
+                <button class="btn btn-ghost btn-sm" onclick="clearLogoFile()" title="Clear custom logo"
+                  id="btn-clear-logo" style="display:none">Clear</button>
+              </div>
+            </div>
+            <div>
+              <div class="field-label">Options</div>
+              <label
+                style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);cursor:pointer;padding-top:8px;">
+                <input type="checkbox" id="set-nomerge" style="accent-color:var(--accent);">
+                Skip merging into single PDF
+              </label>
+            </div>
+          </div>
+        </div>
 
-    <!-- ── PDF Merge Panel ──────────────────────────────────────────────── -->
-    <section class="panel" id="panel-merge">
-      <div class="panel-hdr">
-        <div style="margin-bottom:10px;">
-          <button class="btn btn-ghost btn-sm" onclick="goToMerge(false)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="width:13px;height:13px;margin-right:4px;"><polyline points="15 18 9 12 15 6"/></svg>Back
+        <!-- Parts table -->
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:50px">#</th>
+                <th style="width:180px">Manufacturer</th>
+                <th style="width:160px">Part Number</th>
+                <th>Description</th>
+                <th style="width:60px"></th>
+              </tr>
+            </thead>
+            <tbody id="parts-tbody"></tbody>
+          </table>
+        </div>
+
+        <div class="action-row action-bar">
+          <button class="btn btn-ghost" onclick="goTo(0)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+            Back
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="addPartRow()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            Add part
+          </button>
+          <div style="flex:1"></div>
+          <button class="btn btn-primary btn-lg" id="btn-start" onclick="startDownload()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polygon points="5 3 19 12 5 21 5 3" />
+            </svg>
+            Start Download
           </button>
         </div>
-        <h1>Merge PDFs</h1>
-        <p>Combine multiple PDF files into a single ordered document</p>
-      </div>
+      </section>
 
-      <!-- Drop zone -->
-      <div class="drop-zone" id="merge-drop-zone" style="padding:30px 40px;margin-bottom:20px;"
-           ondragover="mergeDragOver(event)" ondragleave="mergeDragLeave(event)" ondrop="mergeDrop(event)"
-           onclick="mergeAddMore()">
-        <div class="drop-icon" style="width:46px;height:46px;margin:0 auto 14px;">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:24px;height:24px;color:var(--accent);">
-            <polygon points="12 2 2 7 12 12 22 7 12 2"/>
-            <polyline points="2 17 12 22 22 17"/>
-            <polyline points="2 12 12 17 22 12"/>
-          </svg>
+      <!-- ══ Panel 3: Download progress ════════════════════════════════════════ -->
+      <section class="panel" id="panel-download">
+        <div class="panel-hdr">
+          <h1>Downloading Manuals</h1>
+          <p id="dl-subtitle">Searching and fetching PDF documents for each part…</p>
         </div>
-        <div class="drop-title">Drop PDF files here</div>
-        <div class="drop-sub">or click to browse — you can select multiple files at once</div>
-      </div>
 
-      <!-- File list -->
-      <div style="margin-bottom:22px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-          <span style="font-size:13px;font-weight:600;color:var(--text);">
-            Files to merge&ensp;<span id="merge-count" style="font-weight:400;color:var(--muted);">(none added)</span>
-          </span>
-          <div style="display:flex;gap:8px;">
-            <button class="btn btn-ghost btn-sm" onclick="mergeAddMore()">+ Add More</button>
-            <button class="btn btn-ghost btn-sm" id="btn-merge-clear" onclick="mergeClear()"
-                    style="color:var(--red);display:none;">Clear All</button>
+        <div class="progress-header">
+          <span class="progress-label" id="dl-label">Starting…</span>
+          <div class="progress-bar-wrap">
+            <div class="progress-bar-fill" id="dl-bar"></div>
+          </div>
+          <span class="progress-fraction" id="dl-fraction">0 / 0</span>
+        </div>
+
+        <div class="parts-grid" id="dl-grid"></div>
+
+        <div class="log-toolbar">
+          <span class="log-title">Activity log</span>
+          <div class="log-actions">
+            <button class="btn btn-ghost btn-sm" onclick="copyLog()" title="Copy the entire log to the clipboard">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+              Copy
+            </button>
+            <button class="btn btn-ghost btn-sm" onclick="clearLog()" title="Clear the log display">Clear</button>
           </div>
         </div>
-        <div id="merge-file-list">
-          <div class="merge-empty-state">No PDFs added yet. Drop files above or click "Add More".</div>
-        </div>
-      </div>
+        <div class="log-panel" id="log-panel"></div>
 
-      <!-- Output path -->
-      <div style="margin-bottom:22px;">
-        <label style="display:block;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Output File</label>
+        <div class="action-row action-bar" style="margin-top:16px;">
+          <button class="btn btn-danger" id="btn-cancel" onclick="cancelDownload()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <rect x="6" y="6" width="12" height="12" rx="1" />
+            </svg>
+            Stop &amp; View Results
+          </button>
+          <button class="btn btn-secondary" id="btn-open-folder-dl" onclick="openDownloadsFolder()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+            </svg>
+            Open Downloads Folder
+          </button>
+          <div style="flex:1"></div>
+          <button class="btn btn-primary" id="btn-view-results" style="display:none" onclick="goTo(3)"
+            title="Go to the results summary">
+            View Results
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </button>
+        </div>
+      </section>
+
+      <!-- ══ Tool panel: Merge PDFs (standalone utility) ═══════════════════════ -->
+      <section class="panel" id="panel-merge">
+        <div class="panel-hdr">
+          <h1>Merge PDFs</h1>
+          <p>Combine any PDF files into a single document — works independently of the download workflow.</p>
+        </div>
+
+        <div class="drop-zone compact" id="drop-merge" ondragover="onDragOver(event,'drop-merge')"
+          ondragleave="onDragLeave(event,'drop-merge')" ondrop="onMergeDrop(event)" onclick="browseMergePdfs()">
+          <div class="drop-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </div>
+          <div class="drop-title">Drop PDF files here</div>
+          <div class="drop-sub">or click to browse — add as many as you like</div>
+          <div class="drop-types">.pdf</div>
+        </div>
+
+        <div class="merge-list-wrap">
+          <div class="merge-list-hdr">
+            <span class="log-title">Files to merge — <span id="merge-count">0</span></span>
+            <button class="btn btn-ghost btn-sm" id="btn-merge-clear" onclick="clearMergeList()" disabled>Clear
+              all</button>
+          </div>
+          <div class="merge-list" id="merge-list">
+            <div class="merge-empty" id="merge-empty">No files added yet. The merged PDF follows this order — use the
+              arrows to rearrange.</div>
+          </div>
+        </div>
+
         <div class="merge-output-row">
-          <input type="text" id="merge-output-path" placeholder="e.g. C:\Users\...\Merged.pdf">
-          <button class="btn btn-secondary btn-sm" onclick="browseMergeOutput()">Browse</button>
+          <div style="flex:1">
+            <div class="field-label">Output file</div>
+            <div class="field-row">
+              <input class="field-input" id="merge-output" type="text"
+                placeholder="Choose where to save the merged PDF…" readonly>
+              <button class="btn btn-secondary btn-sm" onclick="chooseMergeOutput()">Choose…</button>
+            </div>
+          </div>
         </div>
-        <div style="font-size:11px;color:var(--muted);margin-top:5px;">Leave blank to auto-name in your output folder.</div>
-      </div>
 
-      <!-- Merge action -->
-      <div style="display:flex;align-items:center;gap:14px;margin-bottom:24px;">
-        <button class="btn btn-primary" id="btn-do-merge" onclick="startMerge()" disabled>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;margin-right:6px;">
-            <polygon points="12 2 2 7 12 12 22 7 12 2"/>
-            <polyline points="2 17 12 22 22 17"/>
-            <polyline points="2 12 12 17 22 12"/>
-          </svg>Merge PDFs
+        <div class="merge-result" id="merge-result">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+          <span id="merge-result-text"></span>
+          <button class="btn btn-secondary btn-sm" onclick="openMergedFile()">Open PDF</button>
+          <button class="btn btn-ghost btn-sm" onclick="openMergedFolder()">Open Folder</button>
+        </div>
+
+        <div class="action-row action-bar">
+          <button class="btn btn-ghost" onclick="closeMergeTool()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+            Back
+          </button>
+          <div style="flex:1"></div>
+          <button class="btn btn-primary btn-lg" id="btn-do-merge" onclick="doMerge()" disabled
+            title="Add at least two PDFs and choose an output file">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+            </svg>
+            Merge PDFs
+          </button>
+        </div>
+      </section>
+
+      <!-- ══ Panel 4: Results ══════════════════════════════════════════════════ -->
+      <section class="panel" id="panel-results">
+        <div class="panel-hdr">
+          <h1 id="res-title">Done</h1>
+          <p id="res-subtitle">Your manuals package is ready.</p>
+        </div>
+
+        <div class="results-stats">
+          <div class="stat-card green">
+            <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polyline points="20 6 9 17 4 12" />
+              </svg></div>
+            <div class="stat-num" id="res-found">0</div>
+            <div>
+              <div style="font-weight:600;font-size:13px;">Found</div>
+              <div class="stat-text">Manuals downloaded</div>
+            </div>
+          </div>
+          <div class="stat-card red">
+            <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg></div>
+            <div class="stat-num" id="res-notfound">0</div>
+            <div>
+              <div style="font-weight:600;font-size:13px;">Not found</div>
+              <div class="stat-text">Placeholders inserted</div>
+            </div>
+          </div>
+          <div class="stat-card amber">
+            <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+              </svg></div>
+            <div class="stat-num" id="res-total">0</div>
+            <div>
+              <div style="font-weight:600;font-size:13px;">Total</div>
+              <div class="stat-text">Parts processed</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="results-actions" id="results-actions">
+          <button class="btn btn-primary btn-lg" id="btn-open-pdf" onclick="openPdf()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+            </svg>
+            Open Merged PDF
+          </button>
+          <button class="btn btn-secondary" id="btn-save-pdf" onclick="savePdfAs()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+              <polyline points="17 21 17 13 7 13 7 21" />
+              <polyline points="7 3 7 8 15 8" />
+            </svg>
+            Save PDF As…
+          </button>
+          <button class="btn btn-secondary" onclick="openFolder()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+            </svg>
+            Open Folder
+          </button>
+          <button class="btn btn-secondary" id="btn-merge-sel" onclick="mergeSelected()" disabled
+            title="Re-merge only the parts ticked in the table below">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9 11 12 14 22 4" />
+              <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+            </svg>
+            <span>Merge Selected</span>
+          </button>
+          <button class="btn btn-ghost" onclick="goTo(2)" title="Review the download activity log">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="4 17 10 11 4 5" />
+              <line x1="12" y1="19" x2="20" y2="19" />
+            </svg>
+            View Log
+          </button>
+          <button class="btn btn-ghost" onclick="startOver()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="1 4 1 10 7 10" />
+              <path d="M3.51 15a9 9 0 1 0 .49-3.51" />
+            </svg>
+            Start Over
+          </button>
+        </div>
+
+        <div class="results-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:36px"><input type="checkbox" id="res-check-all" onclick="toggleAllRes(this.checked)"
+                    title="Select all downloaded parts"></th>
+                <th style="width:50px">#</th>
+                <th style="width:180px">Manufacturer</th>
+                <th style="width:160px">Part Number</th>
+                <th>Description</th>
+                <th style="width:110px">Status</th>
+                <th style="width:90px">File</th>
+              </tr>
+            </thead>
+            <tbody id="results-tbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ══ Re-search modal ═══════════════════════════════════════════════════ -->
+  <div class="modal-overlay" id="research-overlay" onclick="if(event.target===this)closeResearch()">
+    <div class="modal">
+      <div class="modal-hdr">
+        <h2>Search again — <span class="pn" id="research-pn"></span></h2>
+        <button class="modal-close" onclick="closeResearch()" title="Close">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
         </button>
-        <span id="merge-status-text" style="font-size:13px;color:var(--muted);"></span>
       </div>
-
-      <!-- Result card -->
-      <div class="merge-result-card" id="merge-result-card" style="display:none;">
-        <div class="merge-result-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+      <div class="modal-body">
+        <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;">
+          <input class="field-input" id="research-mfr" type="text" placeholder="Manufacturer" style="flex:0 0 190px;"
+            onkeydown="if(event.key==='Enter')researchEdited()">
+          <input class="field-input" id="research-pn-input" type="text" placeholder="Part number" style="flex:1;"
+            onkeydown="if(event.key==='Enter')researchEdited()">
+          <button class="btn btn-secondary btn-sm" onclick="researchEdited()"
+            title="Fix a typo in the manufacturer or part number, then search again">
+            Re-search
+          </button>
         </div>
-        <div class="merge-result-info">
-          <div class="merge-result-title" id="merge-result-title">Merged successfully</div>
-          <div class="merge-result-sub" id="merge-result-sub"></div>
-        </div>
-        <div class="merge-result-actions">
-          <button class="btn btn-primary btn-sm" onclick="openMergedPdf()">Open PDF</button>
-          <button class="btn btn-secondary btn-sm" onclick="openMergedFolder()">Open Folder</button>
+        <div class="modal-status" id="research-status">Searching manufacturer sites and the web…</div>
+        <div id="research-list"></div>
+        <div
+          style="display:flex;gap:8px;margin-top:14px;align-items:center;border-top:1px solid rgba(255,255,255,.06);padding-top:12px;">
+          <input class="field-input" id="research-url" type="text"
+            placeholder="…or paste a PDF link you found yourself (https://…)" style="flex:1;"
+            onkeydown="if(event.key==='Enter')keepPastedUrl()">
+          <button class="btn btn-primary btn-sm" id="btn-keep-url" onclick="keepPastedUrl()"
+            title="Download this link, verify it, and save it for this part">
+            Download &amp; Keep
+          </button>
         </div>
       </div>
-    </section>
+      <div class="modal-foot">
+        <button class="btn btn-secondary" id="btn-auto-pick" onclick="autoPick()"
+          title="Let the verified pipeline download and pick the best document automatically">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+          </svg>
+          Auto-pick best
+        </button>
+        <div style="flex:1"></div>
+        <button class="btn btn-secondary" id="btn-rebuild-merge" onclick="rebuildMerged()" style="display:none"
+          title="Re-merge all found parts into the catalog PDF">
+          Rebuild Merged PDF
+        </button>
+        <button class="btn btn-ghost" onclick="closeResearch()">Close</button>
+      </div>
+    </div>
+  </div>
 
-  </main>
-</div>
+  <!-- Toast container -->
+  <div id="toast-container"></div>
 
-<!-- Toast container -->
-<div id="toast-container"></div>
+  <script>
+    'use strict';
 
-<script>
-'use strict';
+    // ── State ────────────────────────────────────────────────────────────────────
+    const S = {
+      step: 0,
+      mode: 'bom',
+      parts: [],
+      filename: '',
+      settings: { output_folder: '', catalog_folder: '', custom_logo_path: '', max_per_part: 1, workers: 5, no_merge: false },
+      pollTimer: null,
+      outputPath: null,
+      outputFolder: null,
+    };
 
-// ── State ────────────────────────────────────────────────────────────────────
-const S = {
-  step:         0,
-  mode:         'bom',
-  parts:        [],
-  filename:     '',
-  settings:     { output_folder: '', max_per_part: 1, workers: 5, no_merge: false },
-  pollTimer:    null,
-  outputPath:   null,
-  outputFolder: null,
-};
+    // ── Init ─────────────────────────────────────────────────────────────────────
+    window.addEventListener('pywebviewready', async () => {
+      const r = await pyapi('load_settings');
+      if (r.ok) {
+        S.settings = r.settings;
+        document.getElementById('set-folder').value = r.settings.output_folder;
+        document.getElementById('set-catalog').value = r.settings.catalog_folder || '';
+        document.getElementById('set-max').value = r.settings.max_per_part;
+        document.getElementById('set-workers').value = r.settings.workers;
+        document.getElementById('set-nomerge').checked = r.settings.no_merge;
+        const logo = r.settings.custom_logo_path || '';
+        document.getElementById('set-logo').value = logo;
+        document.getElementById('btn-clear-logo').style.display = logo ? '' : 'none';
+      }
+    });
 
-// ── Init ─────────────────────────────────────────────────────────────────────
-window.addEventListener('pywebviewready', async () => {
-  const r = await pyapi('load_settings');
-  if (r.ok) {
-    S.settings = r.settings;
-    document.getElementById('set-folder').value  = r.settings.output_folder;
-    document.getElementById('set-max').value     = r.settings.max_per_part;
-    document.getElementById('set-workers').value = r.settings.workers;
-    document.getElementById('set-nomerge').checked = r.settings.no_merge;
-  }
-});
-
-// ── pywebview bridge helper ───────────────────────────────────────────────────
-async function pyapi(method, ...args) {
-  try {
-    return await window.pywebview.api[method](...args);
-  } catch(e) {
-    return { ok: false, error: String(e) };
-  }
-}
-
-// ── Navigation ────────────────────────────────────────────────────────────────
-function goTo(step) {
-  const panels = ['panel-input','panel-parts','panel-download','panel-results'];
-  const navs   = ['nav-0','nav-1','nav-2','nav-3'];
-  panels.forEach((id, i) => {
-    document.getElementById(id).classList.toggle('active', i === step);
-  });
-  // Hide merge panel if we navigate away
-  const mp = document.getElementById('panel-merge');
-  if (mp) mp.classList.remove('active');
-  const mn = document.getElementById('nav-merge');
-  if (mn) mn.classList.remove('active');
-  navs.forEach((id, i) => {
-    const el = document.getElementById(id);
-    el.classList.remove('active','done');
-    if (i === step) el.classList.add('active');
-    else if (i < step) el.classList.add('done');
-  });
-  S.step = step;
-}
-
-// ── Mode switching ────────────────────────────────────────────────────────────
-function switchMode(mode) {
-  S.mode = mode;
-  document.getElementById('mode-bom').style.display   = mode === 'bom'    ? '' : 'none';
-  document.getElementById('mode-parts').style.display = mode === 'parts'  ? '' : 'none';
-  document.getElementById('tab-bom').classList.toggle('active', mode === 'bom');
-  document.getElementById('tab-parts').classList.toggle('active', mode === 'parts');
-  checkInputReady();
-}
-
-// ── Drag & Drop ───────────────────────────────────────────────────────────────
-function onDragOver(e, zoneId) {
-  e.preventDefault(); e.stopPropagation();
-  document.getElementById(zoneId).classList.add('drag-over');
-}
-function onDragLeave(e, zoneId) {
-  e.preventDefault();
-  document.getElementById(zoneId).classList.remove('drag-over');
-}
-async function onDrop(e, type) {
-  e.preventDefault(); e.stopPropagation();
-  const zoneId = type === 'bom' ? 'drop-bom' : 'drop-parts';
-  document.getElementById(zoneId).classList.remove('drag-over');
-  const file = e.dataTransfer.files[0];
-  if (!file) return;
-  await loadFile(file, type);
-}
-async function onFileInput(e, type) {
-  const file = e.target.files[0];
-  if (!file) return;
-  await loadFile(file, type);
-  e.target.value = '';  // reset so same file can be re-dropped
-}
-
-async function loadFile(file, type) {
-  document.getElementById('input-status').textContent = `Reading ${file.name}…`;
-  try {
-    // Read file as base64
-    const b64 = await fileToBase64(file);
-    const r = await pyapi('parse_file_from_data', file.name, b64);
-    if (!r.ok) {
-      toast(`Could not parse file: ${r.error || 'unknown error'}`, 'err');
-      document.getElementById('input-status').textContent = '';
-      return;
+    // ── pywebview bridge helper ───────────────────────────────────────────────────
+    async function pyapi(method, ...args) {
+      try {
+        return await window.pywebview.api[method](...args);
+      } catch (e) {
+        return { ok: false, error: String(e) };
+      }
     }
-    S.parts   = r.parts || [];
-    S.filename = r.filename || file.name;
 
-    const infoId = type === 'bom' ? 'bom-file-info' : 'parts-file-info';
-    const nameId = type === 'bom' ? 'bom-file-name' : 'parts-file-name';
-    const metaId = type === 'bom' ? 'bom-file-meta' : 'parts-file-meta';
-    document.getElementById(infoId).classList.add('visible');
-    document.getElementById(nameId).textContent = file.name;
-    document.getElementById(metaId).textContent =
-      `${S.parts.length} parts extracted · ${(file.size/1024).toFixed(1)} KB`;
+    // ── Navigation ────────────────────────────────────────────────────────────────
+    function goTo(step) {
+      // Leaving the Merge tool, if it was open
+      document.getElementById('panel-merge').classList.remove('active');
+      document.getElementById('nav-merge').classList.remove('active');
+      const panels = ['panel-input', 'panel-parts', 'panel-download', 'panel-results'];
+      const navs = ['nav-0', 'nav-1', 'nav-2', 'nav-3'];
+      panels.forEach((id, i) => {
+        document.getElementById(id).classList.toggle('active', i === step);
+      });
+      navs.forEach((id, i) => {
+        const el = document.getElementById(id);
+        el.classList.remove('active', 'done');
+        if (i === step) el.classList.add('active');
+        else if (i < step) el.classList.add('done');
+      });
+      S.step = step;
+    }
 
-    document.getElementById('input-status').textContent =
-      `${S.parts.length} part${S.parts.length !== 1 ? 's' : ''} extracted`;
-    checkInputReady();
-  } catch(err) {
-    toast(`Error reading file: ${err}`, 'err');
-    document.getElementById('input-status').textContent = '';
-  }
-}
+    // ── Mode switching ────────────────────────────────────────────────────────────
+    function switchMode(mode) {
+      S.mode = mode;
+      document.getElementById('mode-bom').style.display = mode === 'bom' ? '' : 'none';
+      document.getElementById('mode-parts').style.display = mode === 'parts' ? '' : 'none';
+      document.getElementById('tab-bom').classList.toggle('active', mode === 'bom');
+      document.getElementById('tab-parts').classList.toggle('active', mode === 'parts');
+      checkInputReady();
+    }
 
-function fileToBase64(file) {
-  return new Promise((res, rej) => {
-    const reader = new FileReader();
-    reader.onload = () => res(reader.result.split(',')[1]);
-    reader.onerror = rej;
-    reader.readAsDataURL(file);
-  });
-}
+    // ── Drag & Drop ───────────────────────────────────────────────────────────────
+    function onDragOver(e, zoneId) {
+      e.preventDefault(); e.stopPropagation();
+      document.getElementById(zoneId).classList.add('drag-over');
+    }
+    function onDragLeave(e, zoneId) {
+      e.preventDefault();
+      document.getElementById(zoneId).classList.remove('drag-over');
+    }
+    async function onDrop(e, type) {
+      e.preventDefault(); e.stopPropagation();
+      const zoneId = type === 'bom' ? 'drop-bom' : 'drop-parts';
+      document.getElementById(zoneId).classList.remove('drag-over');
+      const file = e.dataTransfer.files[0];
+      if (!file) return;
+      await loadFile(file, type);
+    }
+    async function onFileInput(e, type) {
+      const file = e.target.files[0];
+      if (!file) return;
+      await loadFile(file, type);
+      e.target.value = '';  // reset so same file can be re-dropped
+    }
 
-function checkInputReady() {
-  document.getElementById('btn-next-input').disabled = S.parts.length === 0;
-}
+    async function loadFile(file, type) {
+      document.getElementById('input-status').textContent = `Reading ${file.name}…`;
+      try {
+        // Read file as base64
+        const b64 = await fileToBase64(file);
+        const r = await pyapi('parse_file_from_data', file.name, b64);
+        if (!r.ok) {
+          toast(`Could not parse file: ${r.error || 'unknown error'}`, 'err');
+          document.getElementById('input-status').textContent = '';
+          return;
+        }
+        S.parts = r.parts || [];
+        S.filename = r.filename || file.name;
 
-// ── Go to Parts step ─────────────────────────────────────────────────────────
-function goToParts() {
-  if (!S.parts.length) return;
-  renderPartsTable();
-  document.getElementById('parts-count').textContent = S.parts.length;
-  document.getElementById('parts-source-file').textContent = S.filename;
-  goTo(1);
-}
+        const infoId = type === 'bom' ? 'bom-file-info' : 'parts-file-info';
+        const nameId = type === 'bom' ? 'bom-file-name' : 'parts-file-name';
+        const metaId = type === 'bom' ? 'bom-file-meta' : 'parts-file-meta';
+        document.getElementById(infoId).classList.add('visible');
+        document.getElementById(nameId).textContent = file.name;
+        document.getElementById(metaId).textContent =
+          `${S.parts.length} parts extracted · ${(file.size / 1024).toFixed(1)} KB`;
 
-function renderPartsTable() {
-  const tbody = document.getElementById('parts-tbody');
-  tbody.innerHTML = '';
-  S.parts.forEach((p, i) => {
-    tbody.appendChild(makePartRow(i, p));
-  });
-}
+        document.getElementById('input-status').textContent =
+          `${S.parts.length} part${S.parts.length !== 1 ? 's' : ''} extracted`;
+        checkInputReady();
+      } catch (err) {
+        toast(`Error reading file: ${err}`, 'err');
+        document.getElementById('input-status').textContent = '';
+      }
+    }
 
-function makePartRow(i, p) {
-  const tr = document.createElement('tr');
-  tr.dataset.idx = i;
-  tr.innerHTML = `
-    <td class="idx">${(i+1).toString().padStart(3,'0')}</td>
-    <td class="mfr"><input class="cell-edit" value="${esc(p.manufacturer||'')}" placeholder="Manufacturer"
+    function fileToBase64(file) {
+      return new Promise((res, rej) => {
+        const reader = new FileReader();
+        reader.onload = () => res(reader.result.split(',')[1]);
+        reader.onerror = rej;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function checkInputReady() {
+      document.getElementById('btn-next-input').disabled = S.parts.length === 0;
+    }
+
+    // ── Go to Parts step ─────────────────────────────────────────────────────────
+    function goToParts() {
+      if (!S.parts.length) return;
+      renderPartsTable();
+      document.getElementById('parts-count').textContent = S.parts.length;
+      document.getElementById('parts-source-file').textContent = S.filename;
+      goTo(1);
+    }
+
+    function renderPartsTable() {
+      const tbody = document.getElementById('parts-tbody');
+      tbody.innerHTML = '';
+      S.parts.forEach((p, i) => {
+        tbody.appendChild(makePartRow(i, p));
+      });
+    }
+
+    function makePartRow(i, p) {
+      const tr = document.createElement('tr');
+      tr.dataset.idx = i;
+      tr.innerHTML = `
+    <td class="idx">${(i + 1).toString().padStart(3, '0')}</td>
+    <td class="mfr"><input class="cell-edit" value="${esc(p.manufacturer || '')}" placeholder="Manufacturer"
       oninput="updatePart(${i},'manufacturer',this.value)"></td>
-    <td class="pn"><input class="cell-edit" value="${esc(p.part_number||'')}" placeholder="Part number"
+    <td class="pn"><input class="cell-edit" value="${esc(p.part_number || '')}" placeholder="Part number"
       oninput="updatePart(${i},'part_number',this.value)" style="color:var(--accent)"></td>
-    <td class="desc"><input class="cell-edit" value="${esc(p.description||'')}" placeholder="Description (optional)"
+    <td class="desc"><input class="cell-edit" value="${esc(p.description || '')}" placeholder="Description (optional)"
       oninput="updatePart(${i},'description',this.value)"></td>
     <td class="actions">
       <button class="del-btn" onclick="deletePart(${i})" title="Remove">
@@ -1312,635 +2425,692 @@ function makePartRow(i, p) {
         </svg>
       </button>
     </td>`;
-  return tr;
-}
+      return tr;
+    }
 
-function updatePart(i, field, val) {
-  if (S.parts[i]) S.parts[i][field] = val;
-}
+    function updatePart(i, field, val) {
+      if (S.parts[i]) S.parts[i][field] = val;
+    }
 
-function deletePart(i) {
-  S.parts.splice(i, 1);
-  renderPartsTable();
-  document.getElementById('parts-count').textContent = S.parts.length;
-}
+    function deletePart(i) {
+      S.parts.splice(i, 1);
+      renderPartsTable();
+      document.getElementById('parts-count').textContent = S.parts.length;
+    }
 
-function addPartRow() {
-  S.parts.push({ manufacturer: '', part_number: '', description: '' });
-  renderPartsTable();
-  document.getElementById('parts-count').textContent = S.parts.length;
-  // Focus the new row's part number field
-  const rows = document.querySelectorAll('#parts-tbody tr');
-  if (rows.length) {
-    const last = rows[rows.length - 1];
-    last.querySelector('input:nth-child(1)').focus();
-    last.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }
-}
+    function addPartRow() {
+      S.parts.push({ manufacturer: '', part_number: '', description: '' });
+      renderPartsTable();
+      document.getElementById('parts-count').textContent = S.parts.length;
+      // Focus the new row's part number field
+      const rows = document.querySelectorAll('#parts-tbody tr');
+      if (rows.length) {
+        const last = rows[rows.length - 1];
+        last.querySelector('input:nth-child(1)').focus();
+        last.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
 
-// ── Settings ──────────────────────────────────────────────────────────────────
-function toggleSettings() {
-  const toggle = document.getElementById('settings-toggle');
-  const body   = document.getElementById('settings-body');
-  const open   = body.classList.toggle('open');
-  toggle.classList.toggle('open', open);
-}
+    // ── Settings ──────────────────────────────────────────────────────────────────
+    function toggleSettings() {
+      const toggle = document.getElementById('settings-toggle');
+      const body = document.getElementById('settings-body');
+      const open = body.classList.toggle('open');
+      toggle.classList.toggle('open', open);
+    }
 
-async function browseFolder() {
-  const r = await pyapi('browse_output_folder');
-  if (r.ok) {
-    document.getElementById('set-folder').value = r.path;
-  }
-}
+    async function browseFolder() {
+      const r = await pyapi('browse_output_folder');
+      if (r.ok) {
+        document.getElementById('set-folder').value = r.path;
+      }
+    }
 
-function readSettings() {
-  return {
-    output_folder: document.getElementById('set-folder').value ||
-                   S.settings.output_folder,
-    max_per_part:  parseInt(document.getElementById('set-max').value) || 1,
-    workers:       parseInt(document.getElementById('set-workers').value) || 5,
-    no_merge:      document.getElementById('set-nomerge').checked,
-  };
-}
+    async function browseCatalogFolder() {
+      const r = await pyapi('browse_catalog_folder');
+      if (r.ok) {
+        document.getElementById('set-catalog').value = r.path;
+      }
+    }
 
-// ── Start download ────────────────────────────────────────────────────────────
-async function startDownload() {
-  const validParts = S.parts.filter(p => p.part_number && p.part_number.trim());
-  if (!validParts.length) { toast('No valid parts to download.', 'err'); return; }
+    async function browseLogoFile() {
+      const r = await pyapi('browse_logo_file');
+      if (r.ok) {
+        document.getElementById('set-logo').value = r.path;
+        document.getElementById('btn-clear-logo').style.display = '';
+      }
+    }
 
-  const opts = readSettings();
-  await pyapi('save_settings', opts);
+    function clearLogoFile() {
+      document.getElementById('set-logo').value = '';
+      document.getElementById('btn-clear-logo').style.display = 'none';
+    }
 
-  // Build the grid
-  buildDlGrid(validParts);
-  goTo(2);
+    function readSettings() {
+      return {
+        output_folder: document.getElementById('set-folder').value ||
+          S.settings.output_folder,
+        catalog_folder: document.getElementById('set-catalog').value || '',
+        custom_logo_path: document.getElementById('set-logo').value || '',
+        max_per_part: parseInt(document.getElementById('set-max').value) || 1,
+        workers: parseInt(document.getElementById('set-workers').value) || 5,
+        no_merge: document.getElementById('set-nomerge').checked,
+      };
+    }
 
-  document.getElementById('btn-cancel').disabled = false;
-  document.getElementById('dl-label').textContent   = 'Starting…';
-  document.getElementById('dl-fraction').textContent = `0 / ${validParts.length}`;
-  document.getElementById('dl-bar').style.width = '0%';
-  document.getElementById('dl-subtitle').textContent =
-    'Searching manufacturer portals, Mouser, and the web for each part…';
+    // ── Start download ────────────────────────────────────────────────────────────
+    async function startDownload() {
+      const validParts = S.parts.filter(p => p.part_number && p.part_number.trim());
+      if (!validParts.length) { toast('No valid parts to download.', 'err'); return; }
 
-  const r = await pyapi('start_download', validParts, opts);
-  if (!r.ok) { toast(r.error || 'Could not start job.', 'err'); goTo(1); return; }
+      const opts = readSettings();
+      await pyapi('save_settings', opts);
 
-  startPolling();
-}
+      // Build the grid
+      buildDlGrid(validParts);
+      goTo(2);
 
-function buildDlGrid(parts) {
-  const grid = document.getElementById('dl-grid');
-  grid.innerHTML = '';
-  parts.forEach((p, i) => {
-    const card = document.createElement('div');
-    card.className = 'part-card pending';
-    card.id = `card-${i+1}`;
-    card.innerHTML = `
+      document.getElementById('btn-cancel').disabled = false;
+      document.getElementById('btn-view-results').style.display = 'none';
+      document.getElementById('dl-label').textContent = 'Starting…';
+      document.getElementById('dl-fraction').textContent = `0 / ${validParts.length}`;
+      document.getElementById('dl-bar').style.width = '0%';
+      document.getElementById('dl-subtitle').textContent =
+        'Searching manufacturer sites first, then verifying every PDF is a genuine manual…';
+
+      const r = await pyapi('start_download', validParts, opts);
+      if (!r.ok) { toast(r.error || 'Could not start job.', 'err'); goTo(1); return; }
+
+      startPolling();
+    }
+
+    function buildDlGrid(parts) {
+      const grid = document.getElementById('dl-grid');
+      grid.innerHTML = '';
+      parts.forEach((p, i) => {
+        const card = document.createElement('div');
+        card.className = 'part-card pending';
+        card.id = `card-${i + 1}`;
+        card.innerHTML = `
       <div class="card-header">
         <div class="card-status"><span class="dot"></span><span class="card-status-txt">Pending</span></div>
-        <span class="card-idx">#${String(i+1).padStart(3,'0')}</span>
+        <span class="card-idx">#${String(i + 1).padStart(3, '0')}</span>
       </div>
       <div class="card-pn">${esc(p.part_number)}</div>
       <div class="card-mfr">${esc(p.manufacturer || '—')}</div>
       ${p.description ? `<div class="card-desc">${esc(p.description)}</div>` : ''}`;
-    grid.appendChild(card);
-  });
-}
+        grid.appendChild(card);
+      });
+    }
 
-// ── Polling ───────────────────────────────────────────────────────────────────
-function startPolling() {
-  stopPolling();
-  S.pollTimer = setInterval(pollProgress, 350);
-}
-function stopPolling() {
-  if (S.pollTimer) { clearInterval(S.pollTimer); S.pollTimer = null; }
-}
+    // ── Polling ───────────────────────────────────────────────────────────────────
+    function startPolling() {
+      stopPolling();
+      S.pollTimer = setInterval(pollProgress, 350);
+    }
+    function stopPolling() {
+      if (S.pollTimer) { clearInterval(S.pollTimer); S.pollTimer = null; }
+    }
 
-async function pollProgress() {
-  const prog = await pyapi('get_progress');
-  if (!prog || !prog.status) return;
+    async function pollProgress() {
+      const prog = await pyapi('get_progress');
+      if (!prog || !prog.status) return;
 
-  // Update cards + add inline Open button the moment a file lands
-  (prog.parts || []).forEach(p => {
-    const card = document.getElementById(`card-${p.idx}`);
-    if (!card) return;
-    card.className = `part-card ${p.status}`;
-    const labels = { pending:'Pending', searching:'Searching…', found:'Found', not_found:'Not found' };
-    card.querySelector('.card-status-txt').textContent = labels[p.status] || p.status;
+      // Update cards + add inline Open button the moment a file lands
+      (prog.parts || []).forEach(p => {
+        const card = document.getElementById(`card-${p.idx}`);
+        if (!card) return;
+        card.className = `part-card ${p.status}`;
+        const labels = { pending: 'Pending', searching: 'Searching…', found: 'Found', not_found: 'Not found' };
+        card.querySelector('.card-status-txt').textContent = labels[p.status] || p.status;
 
-    // Instant access: show Open button as soon as a file is downloaded — no waiting
-    if (p.status === 'found' && p.files && p.files.length > 0 && !card.querySelector('.card-open-btn')) {
-      const filePath = p.files[0];
-      const btn = document.createElement('button');
-      btn.className = 'card-open-btn';
-      btn.title = 'Open this manual now';
-      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        // Instant access: show Open button as soon as a file is downloaded — no waiting
+        if (p.status === 'found' && p.files && p.files.length > 0 && !card.querySelector('.card-open-btn')) {
+          const filePath = p.files[0];
+          const btn = document.createElement('button');
+          btn.className = 'card-open-btn';
+          btn.title = 'Open this manual now';
+          btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
         <polyline points="14 2 14 8 20 8"/></svg>Open PDF`;
-      btn.addEventListener('click', e => { e.stopPropagation(); pyapi('open_in_viewer', filePath); });
-      card.appendChild(btn);
-    }
-  });
-
-  // Progress bar
-  const done  = prog.done  || 0;
-  const total = prog.total || 1;
-  const pct   = Math.round((done / total) * 100);
-  document.getElementById('dl-bar').style.width      = pct + '%';
-  document.getElementById('dl-fraction').textContent = `${done} / ${total}`;
-  document.getElementById('dl-label').textContent    =
-    prog.status === 'merging'   ? 'Merging PDFs…' :
-    prog.status === 'running'   ? `Downloading… (${prog.found} found so far)` :
-    prog.status === 'done'      ? 'Complete!' :
-    prog.status === 'error'     ? 'Error occurred' :
-    prog.status === 'cancelled' ? 'Stopped' : prog.status;
-
-  if (prog.log && prog.log.length) renderLog(prog.log);
-
-  if (['done', 'error', 'cancelled'].includes(prog.status)) {
-    stopPolling();
-    document.getElementById('btn-cancel').disabled = true;
-
-    if (prog.status === 'done' || prog.status === 'cancelled') {
-      S.outputPath   = prog.output_path   || null;
-      S.outputFolder = prog.output_folder || S.settings.output_folder;
-      setTimeout(() => showResults(prog), prog.status === 'done' ? 800 : 200);
-    } else {
-      toast('An error occurred. Check the log for details.', 'err');
-    }
-  }
-}
-
-let _lastLogLen = 0;
-function renderLog(lines) {
-  if (lines.length === _lastLogLen) return;
-  _lastLogLen = lines.length;
-  const panel = document.getElementById('log-panel');
-  const newLines = lines.slice(Math.max(0, lines.length - 300));
-  panel.innerHTML = newLines.map(l => {
-    const cls = l.includes('ERROR') || l.includes('error') ? 'err' :
-                l.includes('Saved:') ? 'info' :
-                l.includes('warn') || l.includes('Could not') ? 'warn' : '';
-    return `<div class="log-line ${cls}">${esc(l)}</div>`;
-  }).join('');
-  panel.scrollTop = panel.scrollHeight;
-}
-
-function clearLog() {
-  document.getElementById('log-panel').innerHTML = '';
-  _lastLogLen = 0;
-}
-
-// ── Cancel — stops job AND shows whatever was downloaded so far ───────────────
-async function cancelDownload() {
-  document.getElementById('btn-cancel').disabled = true;
-  document.getElementById('dl-label').textContent = 'Stopping…';
-  await pyapi('cancel');
-  // pollProgress will detect 'cancelled' status and call showResults automatically
-}
-
-// ── Open downloads folder during an active run ────────────────────────────────
-async function openDownloadsFolder() {
-  const path = S.outputFolder || S.settings.output_folder;
-  await pyapi('open_folder', path);
-}
-
-// ── Results ───────────────────────────────────────────────────────────────────
-let _mergeSelection = new Set();  // indices user wants to merge
-let _foundInResults = [];         // [{idx, files}] for current result set
-
-function showResults(prog) {
-  const cancelled = prog.status === 'cancelled';
-
-  document.getElementById('res-title').textContent    = cancelled ? 'Partial Results' : 'Done';
-  document.getElementById('res-subtitle').textContent = cancelled
-    ? `Download stopped early — ${prog.found} manual${prog.found !== 1 ? 's' : ''} were saved.`
-    : 'Your manuals package is ready.';
-
-  document.getElementById('res-found').textContent    = prog.found;
-  document.getElementById('res-notfound').textContent = prog.not_found;
-  document.getElementById('res-total').textContent    = prog.total;
-
-  // Pre-select all found parts
-  _foundInResults = (prog.parts || []).filter(
-    p => p.status === 'found' && p.files && p.files.length > 0
-  );
-  _mergeSelection = new Set(_foundInResults.map(p => p.idx));
-
-  // Build table rows
-  const tbody = document.getElementById('results-tbody');
-  tbody.innerHTML = '';
-  (prog.parts || []).forEach(p => {
-    const tr = document.createElement('tr');
-    const isFound = p.status === 'found' && p.files && p.files.length > 0;
-
-    const checkCell = isFound
-      ? `<td style="text-align:center;"><input type="checkbox" class="res-check" id="rc-${p.idx}" checked
-             onchange="toggleMergeSelect(${p.idx}, this.checked)"></td>`
-      : '<td></td>';
-
-    let actionCell = '';
-    if (isFound) {
-      const fp = p.files[0].replace(/\\/g, '\\\\');
-      actionCell = `<button class="btn btn-ghost btn-sm"
-        onclick="pyapi('open_in_viewer','${fp}')"
-        style="padding:4px 10px;font-size:11px;">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-          <polyline points="14 2 14 8 20 8"/></svg>Open</button>`;
-    }
-
-    const badge = isFound
-      ? `<span class="res-status found">✓ Found</span>`
-      : `<span class="res-status not_found">✗ Not found</span>`;
-
-    tr.innerHTML = `
-      ${checkCell}
-      <td class="idx">${String(p.idx).padStart(3,'0')}</td>
-      <td class="mfr">${esc(p.manufacturer||'—')}</td>
-      <td class="pn">${esc(p.part_number)}</td>
-      <td class="desc" style="font-size:12px;color:var(--muted)">${esc(p.description||'')}</td>
-      <td>${badge}</td>
-      <td style="width:90px">${actionCell}</td>`;
-    tbody.appendChild(tr);
-  });
-
-  const hasPdf   = !!prog.output_path;
-  const canMerge = !hasPdf && prog.found > 0;
-  document.getElementById('btn-open-pdf').style.display = hasPdf ? '' : 'none';
-  document.getElementById('btn-save-pdf').style.display = hasPdf ? '' : 'none';
-
-  const thCheck = document.getElementById('res-th-check');
-  if (thCheck) thCheck.style.visibility = canMerge ? 'visible' : 'hidden';
-
-  _updateMergeSelectionUI(canMerge);
-
-  goTo(3);
-  if (!cancelled) toast(`Done — ${prog.found} manual${prog.found !== 1 ? 's' : ''} downloaded.`, 'ok');
-}
-
-function toggleMergeSelect(idx, checked) {
-  if (checked) _mergeSelection.add(idx);
-  else         _mergeSelection.delete(idx);
-  _updateMergeSelectionUI(true);
-}
-
-function toggleSelectAll(checked) {
-  _foundInResults.forEach(p => {
-    const cb = document.getElementById(`rc-${p.idx}`);
-    if (cb) cb.checked = checked;
-    if (checked) _mergeSelection.add(p.idx);
-    else         _mergeSelection.delete(p.idx);
-  });
-  _updateMergeSelectionUI(true);
-}
-
-function _updateMergeSelectionUI(showMergeBtn) {
-  const n     = _mergeSelection.size;
-  const total = _foundInResults.length;
-
-  const hdrCb = document.getElementById('res-select-all-hdr');
-  if (hdrCb) {
-    hdrCb.checked       = n > 0 && n === total;
-    hdrCb.indeterminate = n > 0 && n < total;
-  }
-
-  const bar = document.getElementById('res-select-bar');
-  if (bar) {
-    bar.style.display = (showMergeBtn && total > 0) ? '' : 'none';
-    document.getElementById('res-select-count').textContent =
-      `${n} of ${total} found manual${total !== 1 ? 's' : ''} selected`;
-  }
-
-  const btn   = document.getElementById('btn-merge-partial');
-  const label = document.getElementById('btn-merge-partial-label');
-  if (btn) {
-    btn.style.display = showMergeBtn ? '' : 'none';
-    btn.disabled      = n === 0;
-    if (label) label.textContent = `Merge Selected (${n})`;
-  }
-}
-
-async function openPdf() {
-  if (!S.outputPath) return;
-  await pyapi('open_in_viewer', S.outputPath);
-}
-
-async function mergeSelected() {
-  if (_mergeSelection.size === 0) {
-    toast('Select at least one manual to merge.', 'err'); return;
-  }
-  const btn   = document.getElementById('btn-merge-partial');
-  const label = document.getElementById('btn-merge-partial-label');
-  btn.disabled = true;
-  label.innerHTML =
-    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-          style="width:13px;height:13px;margin-right:5px;animation:spin .8s linear infinite;display:inline-block;">
-       <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
-     </svg>Merging…`;
-
-  const r = await pyapi('merge_selected', Array.from(_mergeSelection));
-
-  if (!r.ok) {
-    btn.disabled = _mergeSelection.size === 0;
-    label.textContent = `Merge Selected (${_mergeSelection.size})`;
-    toast('Merge failed: ' + (r.error || 'Unknown error'), 'err');
-    return;
-  }
-
-  S.outputPath = r.path;
-  document.getElementById('btn-open-pdf').style.display  = '';
-  document.getElementById('btn-save-pdf').style.display  = '';
-  btn.style.display = 'none';
-  document.getElementById('res-select-bar').style.display = 'none';
-  const thCheck = document.getElementById('res-th-check');
-  if (thCheck) thCheck.style.visibility = 'hidden';
-
-  const fname = r.path.split(/[\/]/).pop();
-  toast(`Merged ${r.merged} manual${r.merged !== 1 ? 's' : ''} \u2192 ${fname}`, 'ok');
-}
-
-async function savePdfAs() {
-  if (!S.outputPath) return;
-  const r = await pyapi('save_pdf_as', S.outputPath);
-  if (r.ok) toast(`Saved to ${r.path}`, 'ok');
-}
-
-async function openFolder() {
-  const path = S.outputPath || S.outputFolder || S.settings.output_folder;
-  await pyapi('open_folder', path);
-}
-
-function startOver() {
-  S.parts = []; S.filename = ''; S.outputPath = null; S.outputFolder = null; _lastLogLen = 0;
-  document.getElementById('bom-file-info').classList.remove('visible');
-  document.getElementById('parts-file-info').classList.remove('visible');
-  document.getElementById('input-status').textContent = '';
-  document.getElementById('btn-next-input').disabled = true;
-  document.getElementById('log-panel').innerHTML = '';
-  document.getElementById('dl-grid').innerHTML = '';
-  switchMode('bom');
-  goTo(0);
-}
-
-// ── Toast notifications ───────────────────────────────────────────────────────
-function toast(msg, type = 'ok') {
-  const container = document.getElementById('toast-container');
-  const el = document.createElement('div');
-  el.className = `toast ${type}`;
-  const icon = type === 'ok'
-    ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>`
-    : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`;
-  el.innerHTML = icon + `<span>${esc(msg)}</span>`;
-  container.appendChild(el);
-  requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('visible')));
-  setTimeout(() => {
-    el.classList.remove('visible');
-    setTimeout(() => el.remove(), 300);
-  }, 4000);
-}
-
-// ── PDF Merge Tool ────────────────────────────────────────────────────────────
-
-let _mergeFiles    = [];   // [{name, path}]
-let _mergedFilePath = null;
-
-function goToMerge(entering = true) {
-  const allPanels = ['panel-input','panel-parts','panel-download','panel-results','panel-merge'];
-  allPanels.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.classList.remove('active');
-  });
-  const mergeNav = document.getElementById('nav-merge');
-  const stepNavs = ['nav-0','nav-1','nav-2','nav-3'];
-  if (entering) {
-    document.getElementById('panel-merge').classList.add('active');
-    if (mergeNav) mergeNav.classList.add('active');
-    stepNavs.forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.style.opacity = '0.35';
-    });
-    // Auto-fill output path default if empty
-    const outEl = document.getElementById('merge-output-path');
-    if (outEl && !outEl.value.trim()) {
-      const folder = S.settings.output_folder || '';
-      if (folder) outEl.value = folder + '\\Merged.pdf';
-    }
-  } else {
-    // Return to the active BOM workflow step
-    if (mergeNav) mergeNav.classList.remove('active');
-    stepNavs.forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.style.opacity = '';
-    });
-    goTo(S.step);
-  }
-}
-
-function mergeDragOver(event) {
-  event.preventDefault();
-  document.getElementById('merge-drop-zone').classList.add('drag-over');
-}
-
-function mergeDragLeave(event) {
-  document.getElementById('merge-drop-zone').classList.remove('drag-over');
-}
-
-async function mergeDrop(event) {
-  event.preventDefault();
-  event.stopPropagation();   // prevent click also firing
-  document.getElementById('merge-drop-zone').classList.remove('drag-over');
-  const files = Array.from(event.dataTransfer.files).filter(f => f.name.toLowerCase().endsWith('.pdf'));
-  if (!files.length) { toast('Please drop PDF files only.', 'err'); return; }
-  await _addMergeFromFileList(files);
-}
-
-function mergeFileInput(event) {
-  // No longer used — click on drop zone goes through mergeAddMore() (native dialog)
-}
-
-async function _addMergeFromFileList(files) {
-  const statusEl = document.getElementById('merge-status-text');
-  let added = 0;
-  const total = files.length;
-  let i = 0;
-
-  for (const file of files) {
-    i++;
-    const path = file.path || '';   // available in some pywebview builds; empty in others
-
-    if (path) {
-      // Fast path: runtime already gave us a real file-system path
-      if (!_mergeFiles.some(f => f.path === path)) {
-        _mergeFiles.push({ name: file.name, path });
-        added++;
-      }
-    } else {
-      // Fallback: read as base64 → backend saves to a temp file → we use that path
-      statusEl.innerHTML = `<span style="color:var(--accent);">Reading ${i}/${total}…</span>`;
-      try {
-        const b64 = await fileToBase64(file);
-        const r   = await pyapi('receive_merge_pdf', file.name, b64);
-        if (!r.ok) { toast(`Could not process "${file.name}": ${r.error || ''}`, 'err'); continue; }
-        if (!_mergeFiles.some(f => f.path === r.path)) {
-          _mergeFiles.push({ name: file.name, path: r.path });
-          added++;
+          btn.addEventListener('click', e => { e.stopPropagation(); pyapi('open_in_viewer', filePath); });
+          card.appendChild(btn);
         }
-      } catch(e) {
-        toast(`Error reading "${file.name}".`, 'err');
+      });
+
+      // Progress bar
+      const done = prog.done || 0;
+      const total = prog.total || 1;
+      const pct = Math.round((done / total) * 100);
+      document.getElementById('dl-bar').style.width = pct + '%';
+      document.getElementById('dl-fraction').textContent = `${done} / ${total}`;
+      document.getElementById('dl-label').textContent =
+        prog.status === 'merging' ? 'Merging PDFs…' :
+          prog.status === 'running' ? `Downloading… (${prog.found} found so far)` :
+            prog.status === 'done' ? 'Complete!' :
+              prog.status === 'error' ? 'Error occurred' :
+                prog.status === 'cancelled' ? 'Stopped' : prog.status;
+
+      if (prog.log && prog.log.length) renderLog(prog.log);
+
+      if (['done', 'error', 'cancelled'].includes(prog.status)) {
+        stopPolling();
+        document.getElementById('btn-cancel').disabled = true;
+        document.getElementById('btn-view-results').style.display = '';
+
+        if (prog.status === 'done' || prog.status === 'cancelled') {
+          S.outputPath = prog.output_path || null;
+          S.outputFolder = prog.output_folder || S.settings.output_folder;
+          setTimeout(() => showResults(prog), prog.status === 'done' ? 800 : 200);
+        } else {
+          toast('An error occurred. Check the log for details.', 'err');
+        }
       }
     }
-  }
 
-  statusEl.textContent = '';
-  if (added) { renderMergeList(); toast(`Added ${added} file${added > 1 ? 's' : ''}.`); }
-}
+    let _lastLogLen = 0;
+    function renderLog(lines) {
+      if (lines.length === _lastLogLen) return;
+      _lastLogLen = lines.length;
+      const panel = document.getElementById('log-panel');
+      const newLines = lines.slice(Math.max(0, lines.length - 300));
+      panel.innerHTML = newLines.map(l => {
+        const cls =
+          (l.includes('ERROR') || l.includes('FATAL')) ? 'err' :
+            (l.includes('Rejected:') || l.includes('Could not') ||
+              l.includes('No verified') || l.includes('No URLs')) ? 'warn' :
+              (l.includes('Verified:') || l.includes('Saved:') || l.includes('Kept:')) ? 'ok' :
+                (l.includes('hit(s)') || l.includes('Re-checking') || l.includes('[Mfr')) ? 'info' : '';
+        return `<div class="log-line ${cls}">${esc(l)}</div>`;
+      }).join('');
+      panel.scrollTop = panel.scrollHeight;
+    }
 
-async function mergeAddMore() {
-  const r = await pyapi('open_pdfs_merge_dialog');
-  if (!r.ok || !r.paths || !r.paths.length) return;
-  let added = 0;
-  for (const path of r.paths) {
-    const name = path.split(/[\\/]/).pop();
-    if (_mergeFiles.some(f => f.path === path)) continue;
-    _mergeFiles.push({ name, path });
-    added++;
-  }
-  if (added) { renderMergeList(); toast(`Added ${added} file${added > 1 ? 's' : ''}.`); }
-}
+    function clearLog() {
+      document.getElementById('log-panel').innerHTML = '';
+      _lastLogLen = 0;
+    }
 
-function renderMergeList() {
-  const listEl   = document.getElementById('merge-file-list');
-  const countEl  = document.getElementById('merge-count');
-  const clearBtn = document.getElementById('btn-merge-clear');
-  const mergeBtn = document.getElementById('btn-do-merge');
-  const n = _mergeFiles.length;
+    async function copyLog() {
+      const text = [...document.querySelectorAll('#log-panel .log-line')]
+        .map(d => d.textContent).join('\n');
+      if (!text) { toast('The log is empty.', 'err'); return; }
+      let ok = false;
+      try { await navigator.clipboard.writeText(text); ok = true; } catch (e) { }
+      if (!ok) {
+        // Fallback for webview backends without the async Clipboard API
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus(); ta.select();
+        try { ok = document.execCommand('copy'); } catch (e) { }
+        ta.remove();
+      }
+      toast(ok ? `Activity log copied (${text.split('\n').length} lines).`
+        : 'Could not access the clipboard — select the log text manually.',
+        ok ? 'ok' : 'err');
+    }
 
-  countEl.textContent = n ? `(${n} file${n > 1 ? 's' : ''})` : '(none added)';
-  clearBtn.style.display = n ? '' : 'none';
-  mergeBtn.disabled = n < 2;
+    // ── Cancel — stops job AND shows whatever was downloaded so far ───────────────
+    async function cancelDownload() {
+      document.getElementById('btn-cancel').disabled = true;
+      document.getElementById('dl-label').textContent = 'Stopping…';
+      await pyapi('cancel');
+      // pollProgress will detect 'cancelled' status and call showResults automatically
+    }
 
-  if (!n) {
-    listEl.innerHTML = '<div class="merge-empty-state">No PDFs added yet. Drop files above or click "Add More".</div>';
-    return;
-  }
-  listEl.innerHTML = `<div class="merge-file-list-inner">${_mergeFiles.map((f, i) => `
-    <div class="merge-file-item">
-      <span class="merge-file-num">${String(i + 1).padStart(2, '0')}</span>
-      <div style="flex:1;overflow:hidden;">
-        <div class="merge-file-name">${esc(f.name)}</div>
-        <div class="merge-file-path">${esc(f.path)}</div>
+    // ── Open downloads folder during an active run ────────────────────────────────
+    async function openDownloadsFolder() {
+      const path = S.outputFolder || S.settings.output_folder;
+      await pyapi('open_folder', path);
+    }
+
+    // ── Results ───────────────────────────────────────────────────────────────────
+    function showResults(prog) {
+      const cancelled = prog.status === 'cancelled';
+
+      document.getElementById('res-title').textContent = cancelled ? 'Partial Results' : 'Done';
+      document.getElementById('res-subtitle').textContent = cancelled
+        ? `Download stopped early — ${prog.found} manual${prog.found !== 1 ? 's' : ''} were saved.`
+        : 'Your manuals package is ready.';
+
+      document.getElementById('res-found').textContent = prog.found;
+      document.getElementById('res-notfound').textContent = prog.not_found;
+      document.getElementById('res-total').textContent = prog.total;
+
+      // Results table — found rows: Open; not-found rows: Search again
+      S.resultParts = prog.parts || [];
+      const tbody = document.getElementById('results-tbody');
+      tbody.innerHTML = '';
+      S.resultParts.forEach(p => {
+        const tr = document.createElement('tr');
+        tr.dataset.idx = p.idx;
+        tr.innerHTML = resRowHTML(p);
+        tbody.appendChild(tr);
+      });
+
+      const allBox = document.getElementById('res-check-all');
+      if (allBox) allBox.checked = false;
+      updateMergeSelBtn();
+
+      // Merged PDF buttons
+      const hasPdf = !!prog.output_path;
+      document.getElementById('btn-open-pdf').style.display = hasPdf ? '' : 'none';
+      document.getElementById('btn-save-pdf').style.display = hasPdf ? '' : 'none';
+
+      goTo(3);
+      if (!cancelled) toast(`Done — ${prog.found} manual${prog.found !== 1 ? 's' : ''} downloaded.`, 'ok');
+    }
+
+    async function openPdf() {
+      if (!S.outputPath) return;
+      await pyapi('open_in_viewer', S.outputPath);
+    }
+
+    async function savePdfAs() {
+      if (!S.outputPath) return;
+      const r = await pyapi('save_pdf_as', S.outputPath);
+      if (r.ok) toast(`Saved to ${r.path}`, 'ok');
+    }
+
+    async function openFolder() {
+      const path = S.outputPath || S.outputFolder || S.settings.output_folder;
+      await pyapi('open_folder', path);
+    }
+
+    function startOver() {
+      S.parts = []; S.filename = ''; S.outputPath = null; S.outputFolder = null; _lastLogLen = 0;
+      document.getElementById('bom-file-info').classList.remove('visible');
+      document.getElementById('parts-file-info').classList.remove('visible');
+      document.getElementById('input-status').textContent = '';
+      document.getElementById('btn-next-input').disabled = true;
+      document.getElementById('log-panel').innerHTML = '';
+      document.getElementById('dl-grid').innerHTML = '';
+      document.getElementById('btn-view-results').style.display = 'none';
+      switchMode('bom');
+      goTo(0);
+    }
+
+    // ── Merge PDFs tool ───────────────────────────────────────────────────────────
+    const M = { files: [], output: '', lastResult: null };
+
+    function openMergeTool() {
+      ['panel-input', 'panel-parts', 'panel-download', 'panel-results']
+        .forEach(id => document.getElementById(id).classList.remove('active'));
+      document.getElementById('panel-merge').classList.add('active');
+      document.getElementById('nav-merge').classList.add('active');
+    }
+    function closeMergeTool() { goTo(S.step); }
+
+    async function browseMergePdfs() {
+      const r = await pyapi('open_pdfs_merge_dialog');
+      if (r.ok && r.paths) {
+        r.paths.forEach(p => M.files.push({ name: p.split(/[\\\/]/).pop(), path: p }));
+        renderMergeList();
+      }
+    }
+
+    async function onMergeDrop(e) {
+      e.preventDefault(); e.stopPropagation();
+      document.getElementById('drop-merge').classList.remove('drag-over');
+      const files = [...e.dataTransfer.files].filter(f => /\.pdf$/i.test(f.name));
+      if (!files.length) { toast('Only PDF files can be merged.', 'err'); return; }
+      for (const f of files) {
+        try {
+          const b64 = await fileToBase64(f);
+          const r = await pyapi('receive_merge_pdf', f.name, b64);
+          if (r.ok) M.files.push({ name: f.name, path: r.path });
+          else toast(`${f.name}: ${r.error || 'could not read file'}`, 'err');
+        } catch (err) { toast(`${f.name}: ${err}`, 'err'); }
+      }
+      renderMergeList();
+    }
+
+    const _svgUp = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg>';
+    const _svgDown = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>';
+    const _svgX = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+
+    function renderMergeList() {
+      const list = document.getElementById('merge-list');
+      const empty = document.getElementById('merge-empty');
+      list.querySelectorAll('.merge-row').forEach(r => r.remove());
+      empty.style.display = M.files.length ? 'none' : '';
+      M.files.forEach((f, i) => {
+        const row = document.createElement('div');
+        row.className = 'merge-row';
+        row.innerHTML = `
+      <span class="merge-idx">${String(i + 1).padStart(2, '0')}</span>
+      <span class="merge-name" title="${esc(f.path)}">${esc(f.name)}</span>
+      <span class="merge-row-btns">
+        <button class="row-btn" title="Move up" ${i === 0 ? 'disabled' : ''} onclick="moveMergeFile(${i},-1)">${_svgUp}</button>
+        <button class="row-btn" title="Move down" ${i === M.files.length - 1 ? 'disabled' : ''} onclick="moveMergeFile(${i},1)">${_svgDown}</button>
+        <button class="row-btn danger" title="Remove from list" onclick="removeMergeFile(${i})">${_svgX}</button>
+      </span>`;
+        list.appendChild(row);
+      });
+      document.getElementById('merge-count').textContent = M.files.length;
+      document.getElementById('btn-merge-clear').disabled = !M.files.length;
+      updateMergeBtn();
+    }
+
+    function moveMergeFile(i, d) {
+      const j = i + d;
+      if (j < 0 || j >= M.files.length) return;
+      [M.files[i], M.files[j]] = [M.files[j], M.files[i]];
+      renderMergeList();
+    }
+    function removeMergeFile(i) { M.files.splice(i, 1); renderMergeList(); }
+    function clearMergeList() { M.files = []; renderMergeList(); }
+
+    async function chooseMergeOutput() {
+      const r = await pyapi('browse_merge_output');
+      if (r.ok) {
+        M.output = r.path;
+        document.getElementById('merge-output').value = r.path;
+        updateMergeBtn();
+      }
+    }
+    function updateMergeBtn() {
+      document.getElementById('btn-do-merge').disabled = !(M.files.length >= 2 && M.output);
+    }
+
+    async function doMerge() {
+      const btn = document.getElementById('btn-do-merge');
+      const orig = btn.innerHTML;
+      btn.disabled = true; btn.textContent = 'Merging…';
+      const r = await pyapi('merge_pdf_files', M.files.map(f => f.path), M.output);
+      btn.innerHTML = orig; updateMergeBtn();
+      if (!r.ok) { toast(r.error || 'Merge failed.', 'err'); return; }
+      M.lastResult = r.path;
+      document.getElementById('merge-result').classList.add('visible');
+      document.getElementById('merge-result-text').textContent =
+        `Merged ${M.files.length} files — ${r.pages} pages · ${r.size_mb} MB`;
+      if (r.errors && r.errors.length) toast(`Merged with ${r.errors.length} skipped file(s): ${r.errors[0]}`, 'err');
+      else toast('PDFs merged successfully.', 'ok');
+    }
+    async function openMergedFile() { if (M.lastResult) await pyapi('open_in_viewer', M.lastResult); }
+    async function openMergedFolder() { if (M.lastResult) await pyapi('open_folder', M.lastResult.replace(/[\\\/][^\\\/]*$/, '')); }
+
+    // ── Results: merge only the selected parts ───────────────────────────────────
+    function toggleAllRes(checked) {
+      document.querySelectorAll('.res-check').forEach(c => c.checked = checked);
+      updateMergeSelBtn();
+    }
+    function updateMergeSelBtn() {
+      const n = document.querySelectorAll('.res-check:checked').length;
+      const btn = document.getElementById('btn-merge-sel');
+      if (!btn) return;
+      btn.disabled = n === 0;
+      btn.querySelector('span').textContent = n ? `Merge Selected (${n})` : 'Merge Selected';
+    }
+    async function mergeSelected() {
+      const idxs = [...document.querySelectorAll('.res-check:checked')].map(c => parseInt(c.value));
+      if (!idxs.length) return;
+      const btn = document.getElementById('btn-merge-sel');
+      const span = btn.querySelector('span');
+      const orig = span.textContent;
+      btn.disabled = true; span.textContent = 'Merging…';
+      const r = await pyapi('merge_selected', idxs);
+      span.textContent = orig; updateMergeSelBtn();
+      if (!r.ok) { toast(r.error || 'Merge failed.', 'err'); return; }
+      S.outputPath = r.path;
+      document.getElementById('btn-open-pdf').style.display = '';
+      document.getElementById('btn-save-pdf').style.display = '';
+      toast(`Merged ${r.merged} selected part(s) → BOM_Manuals_Selected.pdf`, 'ok');
+    }
+
+    // ── Results row template (shared by initial render and live updates) ─────────
+    function resRowHTML(p) {
+      const found = p.status === 'found' && p.files && p.files.length > 0;
+      let actionCell = '';
+      if (found) {
+        const fp = p.files[0].replace(/\\/g, '\\\\');
+        actionCell = `<button class="btn btn-ghost btn-sm research-btn"
+      onclick="pyapi('open_in_viewer','${fp}')">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/></svg>Open</button>`;
+      } else {
+        actionCell = `<button class="btn btn-secondary btn-sm research-btn"
+      onclick="openResearch(${p.idx})" title="Search the web again and pick a PDF for this part">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></svg>Search again</button>`;
+      }
+      const badge = found
+        ? `<span class="res-status found">✓ Found</span>`
+        : `<span class="res-status not_found">✗ Not found</span>`;
+      return `
+      <td>${found ? `<input type="checkbox" class="res-check" value="${p.idx}" onchange="updateMergeSelBtn()">` : ''}</td>
+      <td class="idx">${String(p.idx).padStart(3, '0')}</td>
+      <td class="mfr">${esc(p.manufacturer || '—')}</td>
+      <td class="pn">${esc(p.part_number)}</td>
+      <td class="desc" style="font-size:12px;color:var(--muted)">${esc(p.description || '')}</td>
+      <td>${badge}</td>
+      <td style="width:120px">${actionCell}</td>`;
+    }
+
+    function markPartFound(idx, file) {
+      const p = (S.resultParts || []).find(x => x.idx === idx);
+      if (!p) return;
+      const wasFound = p.status === 'found';
+      p.status = 'found'; p.files = [file];
+      const tr = document.querySelector(`#results-tbody tr[data-idx="${idx}"]`);
+      if (tr) tr.innerHTML = resRowHTML(p);
+      if (!wasFound) {
+        const f = document.getElementById('res-found');
+        const n = document.getElementById('res-notfound');
+        f.textContent = (parseInt(f.textContent) || 0) + 1;
+        n.textContent = Math.max(0, (parseInt(n.textContent) || 0) - 1);
+      }
+      S.mergeDirty = true;
+      document.getElementById('btn-rebuild-merge').style.display = '';
+    }
+
+    // ── Re-search modal ───────────────────────────────────────────────────────────
+    const R = { idx: null, busy: false };
+
+    async function openResearch(idx) {
+      const p = (S.resultParts || []).find(x => x.idx === idx) || {};
+      document.getElementById('research-mfr').value = p.manufacturer || '';
+      document.getElementById('research-pn-input').value = p.part_number || '';
+      document.getElementById('research-overlay').classList.add('visible');
+      runResearch(idx, p.manufacturer || '', p.part_number || '');
+    }
+
+    function researchEdited() {
+      if (R.idx == null) return;
+      const mfr = document.getElementById('research-mfr').value.trim();
+      const pn = document.getElementById('research-pn-input').value.trim();
+      if (!pn) { toast('Enter a part number first.', 'err'); return; }
+      runResearch(R.idx, mfr, pn);   // backend cancels any in-flight search itself
+    }
+
+    async function runResearch(idx, mfr, pn) {
+      R.idx = idx;
+      R.busy = true;
+      document.getElementById('research-url').value = '';
+      document.getElementById('research-pn').textContent = `${mfr ? mfr + ' ' : ''}${pn}`;
+      document.getElementById('research-list').innerHTML = '';
+      document.getElementById('research-status').innerHTML =
+        '<span class="modal-spinner"></span>Searching manufacturer sites and the web&#8230; this can take up to a minute.';
+      document.getElementById('btn-auto-pick').disabled = true;
+      const r = await pyapi('research_part', idx, mfr, pn);
+      if (R.idx !== idx || r.cancelled) return;        // modal switched/closed — stale result
+      R.busy = false;
+      document.getElementById('btn-auto-pick').disabled = false;
+      if (!r.ok) {
+        document.getElementById('research-status').textContent = r.error || 'Search failed.';
+        return;
+      }
+      // Reflect any correction in the results table (backend already saved it)
+      const p = (S.resultParts || []).find(x => x.idx === idx);
+      if (p && (p.manufacturer !== mfr || p.part_number !== pn)) {
+        if (mfr) p.manufacturer = mfr;
+        if (pn) p.part_number = pn;
+        const tr = document.querySelector(`#results-tbody tr[data-idx="${idx}"]`);
+        if (tr) tr.innerHTML = resRowHTML(p);
+      }
+      renderCandidates(r.candidates);
+    }
+
+    function renderCandidates(cands) {
+      const list = document.getElementById('research-list');
+      list.innerHTML = '';
+      if (!cands || !cands.length) {
+        document.getElementById('research-status').textContent =
+          'No candidate documents found. Search engines may be rate-limiting after many ' +
+          'searches — wait a minute and try again, or edit the part number / manufacturer.';
+        return;
+      }
+      document.getElementById('research-status').textContent =
+        `${cands.length} candidate document(s) — the suggested one is listed first. Preview opens in your browser.`;
+      cands.forEach(c => {
+        const row = document.createElement('div');
+        row.className = 'cand-row';
+        row.dataset.url = c.url;
+        const badges =
+          (c.suggested ? '<span class="badge suggested">Suggested</span>' : '') +
+          (c.official ? '<span class="badge official">Official site</span>' : '') +
+          (c.kind ? `<span class="badge ${c.kind}">${c.kind}</span>` : '');
+        row.innerHTML = `
+      <div class="cand-main">
+        <div class="cand-badges">${badges}</div>
+        <div class="cand-title" title="${esc(c.url)}">${esc(c.title)}</div>
+        <div class="cand-meta">${esc(c.domain)}</div>
       </div>
-      <div class="merge-file-actions">
-        <button class="merge-order-btn" onclick="mergeMoveUp(${i})" ${i === 0 ? 'disabled' : ''} title="Move up">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg>
-        </button>
-        <button class="merge-order-btn" onclick="mergeMoveDown(${i})" ${i === n - 1 ? 'disabled' : ''} title="Move down">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
-        </button>
-        <button class="merge-remove-btn" onclick="removeMergeFile(${i})" title="Remove">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-    </div>`).join('')}</div>`;
-}
+      <div class="cand-actions">
+        <button class="btn btn-ghost btn-sm research-btn" onclick="pyapi('open_url','${esc(c.url)}')" title="Open this PDF in your browser to check it">Preview</button>
+        <button class="btn btn-primary btn-sm research-btn" onclick="keepCandidate(this,'${esc(c.url)}')" title="Download this PDF into the manuals folder">Keep this</button>
+      </div>`;
+        list.appendChild(row);
+      });
+    }
 
-function mergeMoveUp(i) {
-  if (i <= 0) return;
-  [_mergeFiles[i - 1], _mergeFiles[i]] = [_mergeFiles[i], _mergeFiles[i - 1]];
-  renderMergeList();
-}
+    async function keepCandidate(btn, url) {
+      if (R.busy || R.idx == null) return;
+      const idx = R.idx;
+      R.busy = true;
+      const orig = btn.textContent;
+      btn.disabled = true; btn.textContent = 'Saving…';
+      const r = await pyapi('keep_candidate', idx, url);
+      if (R.idx !== idx) return;                       // modal switched/closed — stale result
+      R.busy = false;
+      btn.disabled = false; btn.textContent = orig;
+      if (!r.ok) { toast(r.error || 'Could not save this PDF.', 'err'); return; }
+      const row = btn.closest('.cand-row');
+      if (row) {
+        row.classList.add('kept');
+        btn.textContent = 'Saved ✓'; btn.disabled = true;
+      }
+      markPartFound(idx, r.file);
+      if (r.warning) {
+        toast(`Saved, but it looks like a ${r.doc_type.replace('_', ' ')} — preview it to make sure.`, 'err');
+      } else {
+        toast(`Saved as ${r.doc_type.toUpperCase()}. Use "Rebuild Merged PDF" to update the catalog.`, 'ok');
+      }
+    }
 
-function mergeMoveDown(i) {
-  if (i >= _mergeFiles.length - 1) return;
-  [_mergeFiles[i], _mergeFiles[i + 1]] = [_mergeFiles[i + 1], _mergeFiles[i]];
-  renderMergeList();
-}
+    async function autoPick() {
+      if (R.busy || R.idx == null) return;
+      const idx = R.idx;
+      R.busy = true;
+      const btn = document.getElementById('btn-auto-pick');
+      btn.disabled = true;
+      document.getElementById('research-status').innerHTML =
+        '<span class="modal-spinner"></span>Downloading and verifying candidates &#8212; keeping the best one&#8230;';
+      const r = await pyapi('auto_pick', idx);
+      if (R.idx !== idx || r.cancelled) return;        // modal switched/closed — stale result
+      R.busy = false; btn.disabled = false;
+      if (r.ok) {
+        document.getElementById('research-status').textContent =
+          'Done — the verified best document was saved.';
+        markPartFound(idx, r.file);
+        toast('Best verified document saved.', 'ok');
+        if (r.candidates) renderCandidates(r.candidates);
+      } else {
+        toast(r.error || 'Auto-pick found nothing.', 'err');
+        if (r.candidates && r.candidates.length) renderCandidates(r.candidates);
+        else document.getElementById('research-status').textContent =
+          r.error || 'Nothing passed verification.';
+      }
+    }
 
-function removeMergeFile(i) {
-  _mergeFiles.splice(i, 1);
-  renderMergeList();
-  if (!_mergeFiles.length) {
-    document.getElementById('merge-result-card').style.display = 'none';
-    _mergedFilePath = null;
-  }
-}
+    async function rebuildMerged() {
+      const idxs = (S.resultParts || [])
+        .filter(p => p.status === 'found' && p.files && p.files.length)
+        .map(p => p.idx);
+      if (!idxs.length) { toast('No found parts to merge.', 'err'); return; }
+      const btn = document.getElementById('btn-rebuild-merge');
+      btn.disabled = true; const t = btn.textContent; btn.textContent = 'Merging…';
+      const r = await pyapi('merge_selected', idxs);
+      btn.disabled = false; btn.textContent = t;
+      if (!r.ok) { toast(r.error || 'Merge failed.', 'err'); return; }
+      S.outputPath = r.path; S.mergeDirty = false;
+      document.getElementById('btn-open-pdf').style.display = '';
+      document.getElementById('btn-save-pdf').style.display = '';
+      toast(`Merged ${r.merged} part(s) into the catalog PDF.`, 'ok');
+    }
 
-function mergeClear() {
-  _mergeFiles = [];
-  _mergedFilePath = null;
-  document.getElementById('merge-result-card').style.display = 'none';
-  document.getElementById('merge-status-text').textContent = '';
-  renderMergeList();
-}
+    async function keepPastedUrl() {
+      if (R.busy || R.idx == null) return;
+      const inp = document.getElementById('research-url');
+      const url = inp.value.trim();
+      if (!/^https?:\/\/.+/i.test(url)) { toast('Paste a full http(s):// link first.', 'err'); return; }
+      const idx = R.idx;
+      R.busy = true;
+      const btn = document.getElementById('btn-keep-url');
+      const orig = btn.textContent;
+      btn.disabled = true; btn.textContent = 'Downloading…';
+      const r = await pyapi('keep_candidate', idx, url);
+      if (R.idx !== idx) return;                       // modal switched/closed — stale result
+      R.busy = false;
+      btn.disabled = false; btn.textContent = orig;
+      if (!r.ok) { toast(r.error || 'Could not download that link.', 'err'); return; }
+      inp.value = '';
+      markPartFound(idx, r.file);
+      if (r.warning) {
+        toast(`Saved your link, but it looks like a ${(r.doc_type || '').replace('_', ' ')} and the part number wasn't found inside — kept anyway since you chose it.`, 'err');
+      } else {
+        toast(`Saved as ${(r.doc_type || 'DOC').toUpperCase()}. Use "Rebuild Merged PDF" to update the catalog.`, 'ok');
+      }
+    }
 
-async function browseMergeOutput() {
-  const r = await pyapi('browse_merge_output');
-  if (r.ok && r.path) {
-    document.getElementById('merge-output-path').value = r.path;
-  }
-}
+    function closeResearch() {
+      document.getElementById('research-overlay').classList.remove('visible');
+      R.idx = null;
+      R.busy = false;
+      pyapi('cancel_research');   // abort the in-flight search in Python (fire & forget)
+    }
 
-async function startMerge() {
-  if (_mergeFiles.length < 2) { toast('Add at least 2 PDF files to merge.', 'err'); return; }
+    // ── Toast notifications ───────────────────────────────────────────────────────
+    function toast(msg, type = 'ok') {
+      const container = document.getElementById('toast-container');
+      const el = document.createElement('div');
+      el.className = `toast ${type}`;
+      const icon = type === 'ok'
+        ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>`
+        : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`;
+      el.innerHTML = icon + `<span>${esc(msg)}</span>`;
+      container.appendChild(el);
+      requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('visible')));
+      setTimeout(() => {
+        el.classList.remove('visible');
+        setTimeout(() => el.remove(), 300);
+      }, 4000);
+    }
 
-  let outputPath = document.getElementById('merge-output-path').value.trim();
-  // Auto-generate output path if blank
-  if (!outputPath) {
-    const folder = S.settings.output_folder || '';
-    outputPath = (folder ? folder + '\\' : '') + 'Merged.pdf';
-    document.getElementById('merge-output-path').value = outputPath;
-  }
-  if (!outputPath.toLowerCase().endsWith('.pdf')) outputPath += '.pdf';
+    // ── Utility ────────────────────────────────────────────────────────────────────
+    function esc(s) {
+      return String(s ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
 
-  const btn      = document.getElementById('btn-do-merge');
-  const statusEl = document.getElementById('merge-status-text');
-  btn.disabled   = true;
-  statusEl.innerHTML = '<span style="color:var(--accent);">Merging…</span>';
-  document.getElementById('merge-result-card').style.display = 'none';
-
-  const r = await pyapi('merge_pdf_files', _mergeFiles.map(f => f.path), outputPath);
-
-  btn.disabled = _mergeFiles.length < 2;
-  statusEl.textContent = '';
-
-  if (!r.ok) {
-    toast('Merge failed: ' + (r.error || 'Unknown error'), 'err');
-    return;
-  }
-
-  _mergedFilePath = r.path;
-  const fname = r.path.split(/[\\/]/).pop();
-  document.getElementById('merge-result-title').textContent = fname;
-  document.getElementById('merge-result-sub').textContent =
-    `${r.pages} page${r.pages !== 1 ? 's' : ''} · ${r.size_mb} MB · merged from ${_mergeFiles.length} files` +
-    (r.errors && r.errors.length ? ` · ⚠ ${r.errors.length} file(s) skipped` : '');
-  document.getElementById('merge-result-card').style.display = 'flex';
-
-  toast(`Merged ${_mergeFiles.length} PDFs → ${r.pages} pages · ${r.size_mb} MB`);
-  if (r.errors && r.errors.length) {
-    setTimeout(() => toast(`Skipped: ${r.errors[0]}${r.errors.length > 1 ? ` (+${r.errors.length - 1} more)` : ''}`, 'err'), 500);
-  }
-}
-
-async function openMergedPdf() {
-  if (_mergedFilePath) await pyapi('open_in_viewer', _mergedFilePath);
-}
-
-async function openMergedFolder() {
-  if (_mergedFilePath) await pyapi('open_folder', _mergedFilePath);
-}
-
-// ── Utility ────────────────────────────────────────────────────────────────────
-function esc(s) {
-  return String(s ?? '')
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-// Prevent default browser drag-and-drop navigation
-document.addEventListener('dragover',  e => e.preventDefault());
-document.addEventListener('drop',      e => e.preventDefault());
-</script>
+    // Prevent default browser drag-and-drop navigation
+    document.addEventListener('dragover', e => e.preventDefault());
+    document.addEventListener('drop', e => e.preventDefault());
+  </script>
 </body>
+
 </html>

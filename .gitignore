@@ -1,0 +1,15 @@
+﻿# Python
+__pycache__/
+*.pyc
+*.pyo
+myvenv/
+
+# PyInstaller build artifacts
+build/
+dist/
+
+# Misc
+*.rar
+*.spec
+pyproject.toml
+installer.iss

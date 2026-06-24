@@ -9,6 +9,7 @@ All methods return plain dicts (JSON-serialisable).
 from __future__ import annotations
 
 import base64
+import collections
 import copy
 import json
 import os
@@ -16,6 +17,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -33,6 +35,8 @@ _DEFAULTS = {
     "max_per_part": 1,
     "workers": 5,
     "no_merge": False,
+    "catalog_folder": "",
+    "custom_logo_path": "",
 }
 
 
@@ -56,16 +60,9 @@ def _save_cfg(cfg: dict) -> None:
 # ── Connection pool ───────────────────────────────────────────────────────────
 
 def _make_session() -> requests.Session:
-    s = requests.Session()
-    s.headers.update({"User-Agent": bd.BROWSER_UA})
-    adapter = requests.adapters.HTTPAdapter(
-        pool_connections=20,
-        pool_maxsize=20,
-        max_retries=requests.adapters.Retry(total=1, backoff_factor=0.3),
-    )
-    s.mount("http://", adapter)
-    s.mount("https://", adapter)
-    return s
+    # Delegate to the single pooled-session factory in bom_downloader so the
+    # connection-pool sizing is identical no matter which entry point runs.
+    return bd.make_pooled_session()
 
 
 # ── Main API class ────────────────────────────────────────────────────────────
@@ -77,9 +74,18 @@ class API:
         self.window: webview.Window | None = None
 
         self._lock      = threading.Lock()
+        self._log_lock  = threading.Lock()   # tiny, dedicated to the activity log
+                                             # so high-frequency log events never
+                                             # contend with the deepcopy in
+                                             # get_progress() (that contention is
+                                             # what froze the UI under load).
+        self._log: "collections.deque[str]" = collections.deque(maxlen=300)
         self._cancel_ev = threading.Event()
         self._job_thread: threading.Thread | None = None
+        self._executor: ThreadPoolExecutor | None = None  # kept so cancel() can kill queued futures
+        self._active_workers = 0                          # live _download_part threads
         self._session: requests.Session | None = None   # kept so cancel() can close it
+        self._research_cache: dict[int, dict] = {}        # idx -> {url: candidate}
         self._output_folder: str = _DEFAULTS["output_folder"]
 
         self._progress: dict = {"status": "idle"}
@@ -116,6 +122,24 @@ class API:
             return {"ok": True, "path": result[0]}
         return {"ok": False}
 
+    def browse_catalog_folder(self) -> dict:
+        result = self.window.create_file_dialog(webview.FOLDER_DIALOG)
+        if result:
+            return {"ok": True, "path": result[0]}
+        return {"ok": False}
+
+    def browse_logo_file(self) -> dict:
+        result = self.window.create_file_dialog(
+            webview.OPEN_DIALOG,
+            file_types=(
+                "Image Files (*.png;*.jpg;*.jpeg)",
+                "All Files (*.*)",
+            ),
+        )
+        if result:
+            return {"ok": True, "path": result[0]}
+        return {"ok": False}
+
     # ── BOM / Parts parsing ───────────────────────────────────────────────────
 
     def parse_file_from_path(self, path: str) -> dict:
@@ -146,10 +170,17 @@ class API:
     def start_download(self, parts: list[dict], options: dict) -> dict:
         if self._job_thread and self._job_thread.is_alive():
             return {"ok": False, "error": "A job is already running."}
+        # Make sure NO thread from a previous (cancelled) job is still alive
+        # before installing a fresh cancel event — otherwise those threads
+        # would see "not cancelled" again and resume downloading.
+        if not self._settle_old_job():
+            return {"ok": False, "error":
+                    "The previous job is still stopping — wait a few seconds and try again."}
 
-        self._cancel_ev.clear()
         self._output_folder = options.get("output_folder", _DEFAULTS["output_folder"])
 
+        with self._log_lock:
+            self._log.clear()
         with self._lock:
             self._progress = {
                 "status":       "running",
@@ -184,10 +215,22 @@ class API:
         max_dl   = int(options.get("max_per_part", 1))
         workers  = int(options.get("workers", 5))
         no_merge = bool(options.get("no_merge", False))
+        bd.set_catalog_dirs([p.strip() for p in
+                             str(options.get("catalog_folder", "")).split(";")
+                             if p.strip()])
 
         def _on_event(ev: dict) -> None:
+            t = ev.get("type")
+            # Log events are by far the most frequent. Keep them OFF the main
+            # progress lock entirely — append to a dedicated deque under its own
+            # tiny lock. This is the change that stops the UI freezing: worker
+            # threads logging dozens of lines/sec no longer fight get_progress()
+            # for self._lock.
+            if t == "log":
+                with self._log_lock:
+                    self._log.append(ev.get("message", ""))
+                return
             with self._lock:
-                t = ev.get("type")
                 if t == "part_start":
                     for p in self._progress["parts"]:
                         if p["idx"] == ev["idx"]:
@@ -205,26 +248,33 @@ class API:
                         self._progress["found"] += 1
                     else:
                         self._progress["not_found"] += 1
-                elif t == "log":
-                    log = self._progress["log"]
-                    log.append(ev.get("message", ""))
-                    if len(log) > 300:
-                        self._progress["log"] = log[-300:]
 
         bd.set_progress_callback(_on_event)
         bd.set_cancel_event(self._cancel_ev)
         self._session = _make_session()
 
+        def _tracked_download(*args):
+            """Wrap _download_part so we can count live worker threads —
+            _settle_old_job() waits on this count before re-arming anything."""
+            with self._lock:
+                self._active_workers += 1
+            try:
+                return bd._download_part(*args)
+            finally:
+                with self._lock:
+                    self._active_workers -= 1
+
         # Use a manually managed executor so we can shutdown(wait=False) on cancel,
         # which lets in-flight network calls die naturally without blocking the UI.
         ex = ThreadPoolExecutor(max_workers=workers)
+        self._executor = ex
         try:
             folder.mkdir(parents=True, exist_ok=True)
             part_results: dict[int, dict] = {}
 
             fut_map = {
                 ex.submit(
-                    bd._download_part,
+                    _tracked_download,
                     i + 1,
                     p.get("manufacturer", ""),
                     p.get("part_number", ""),
@@ -249,9 +299,10 @@ class API:
                     part_results[idx] = {"saved": [], "candidates": []}
 
         except Exception as e:
+            with self._log_lock:
+                self._log.append(f"FATAL ERROR: {e}")
             with self._lock:
                 self._progress["status"] = "error"
-                self._progress["log"].append(f"FATAL ERROR: {e}")
             return
         finally:
             # ← KEY FIX: don't block — let running network calls die on their own
@@ -262,7 +313,10 @@ class API:
             except Exception:
                 pass
             bd.set_progress_callback(None)
-            bd.set_cancel_event(None)
+            # DON'T clear the cancel event here — lingering threads need to see
+            # _is_cancelled()==True so they stop instead of continuing to download
+            # PDFs for other parts.  The event will be replaced with a fresh one
+            # when research_part / auto_pick is called.
 
         # ── Cancelled: surface whatever was downloaded so far ─────────────────
         if self._cancel_ev.is_set():
@@ -271,6 +325,24 @@ class API:
                 self._progress["status"]       = "cancelled"
                 self._progress["output_folder"] = str(folder)
                 # Show partial results: mark any pending/searching parts as not_found
+                for p in self._progress["parts"]:
+                    if p["status"] in ("pending", "searching"):
+                        p["status"] = "not_found"
+            return
+
+        # ── Second pass: recover search-engine-only misses ───────────────────
+        # The parallel pass rate-limits DuckDuckGo into a global pause and trips
+        # the distributor scrapers, which starves parts with no DirectProbe/
+        # portal mirror (e.g. ABB). Re-run those misses ONE AT A TIME with the
+        # engines forced — the same thing the manual 'Search again' button does.
+        self._retry_misses(parts, folder, max_dl)
+
+        # Cancellation may have arrived mid-retry — handle it like the main pass
+        # instead of falling through and mislabelling the job 'done'.
+        if self._cancel_ev.is_set():
+            with self._lock:
+                self._progress["status"]        = "cancelled"
+                self._progress["output_folder"] = str(folder)
                 for p in self._progress["parts"]:
                     if p["status"] in ("pending", "searching"):
                         p["status"] = "not_found"
@@ -295,12 +367,84 @@ class API:
             part_files=final_files,
             skipped=set(),
             output_path=output,
+            custom_logo_path=options.get("custom_logo_path", ""),
         )
 
         with self._lock:
             self._progress["status"]       = "done"
             self._progress["output_path"]  = output
             self._progress["output_folder"] = str(folder)
+
+    def _retry_misses(self, parts: list[dict], folder: Path, max_dl: int) -> None:
+        """Re-run the parts that found nothing, ONE AT A TIME, with the search
+        engines forced on.
+
+        Why this exists: the parallel main pass funnels every DuckDuckGo query
+        through one global lock, which rate-limits DDG into an escalating global
+        pause, and it trips the Mouser/RS scrapers on bot-blocks for the whole
+        run. Parts that depend purely on search engines (e.g. ABB — no
+        DirectProbe/portal mirror) then get ZERO candidates and finish
+        'not found', even though their datasheet/manual is reachable. Running
+        them sequentially with force=True bypasses the self-imposed DDG pause and
+        removes the lock contention that caused the rate-limit — i.e. exactly
+        what the manual 'Search again' button already does, just automatic."""
+        if self._cancel_ev.is_set():
+            return
+        with self._lock:
+            misses = [p for p in self._progress["parts"]
+                      if p.get("status") == "not_found"]
+        if not misses:
+            return
+
+        bd.reset_search_throttle()      # clear DDG cooldown + scraper trips
+        # Log-only callback: surface retry activity in the UI WITHOUT re-emitting
+        # part_start/part_done (those would double-count done/found).
+        def _log_only(ev: dict) -> None:
+            if ev.get("type") == "log":
+                with self._log_lock:
+                    self._log.append(ev.get("message", ""))
+        bd.set_progress_callback(_log_only)
+
+        s = _make_session()             # main-pass session was already closed
+        bd.tprint(f"    [Retry] re-checking {len(misses)} part(s) that found "
+                  f"nothing — one at a time, search engines forced…")
+        try:
+            for p in misses:
+                if self._cancel_ev.is_set():
+                    break
+                idx   = p["idx"]
+                mfr   = p.get("manufacturer", "")
+                model = p.get("part_number", "")
+                desc  = p.get("description", "")
+                with self._lock:
+                    p["status"] = "searching"
+                    self._active_workers += 1
+                # A generous single-part budget. Setting any interactive deadline
+                # also disables the 75s batch per-part cap inside _find_pdfs.
+                bd.set_search_deadline(90)
+                try:
+                    res = bd._download_part(idx, mfr, model, folder, max_dl,
+                                            s, desc, force=True)
+                except Exception:
+                    res = {"saved": []}
+                finally:
+                    bd.set_search_deadline(None)
+                    with self._lock:
+                        self._active_workers -= 1
+                saved = res.get("saved") or []
+                with self._lock:
+                    if saved and not self._cancel_ev.is_set():
+                        p["status"] = "found"
+                        p["files"]  = [str(f) for f in saved]
+                        self._progress["found"]     = self._progress.get("found", 0) + 1
+                        self._progress["not_found"] = max(
+                            0, self._progress.get("not_found", 0) - 1)
+                    else:
+                        p["status"] = "not_found"
+        finally:
+            bd.set_progress_callback(None)
+            try: s.close()
+            except Exception: pass
 
     def _collect_files(self, folder: Path, n_parts: int) -> dict:
         result = {}
@@ -313,12 +457,29 @@ class API:
     # ── Progress polling ──────────────────────────────────────────────────────
 
     def get_progress(self) -> dict:
+        # Snapshot the log from its own lock (cheap), then copy the rest of the
+        # progress under the main lock. The two locks are never held at once, so
+        # logging and polling can't deadlock or serialise against each other.
+        with self._log_lock:
+            log_snapshot = list(self._log)
         with self._lock:
-            return copy.deepcopy(self._progress)
+            snap = copy.deepcopy(self._progress)
+        if isinstance(snap, dict) and snap.get("status") != "idle":
+            snap["log"] = log_snapshot
+        return snap
 
     def cancel(self) -> dict:
-        """Signal cancel AND close the HTTP session so blocked socket reads fail fast."""
+        """Signal cancel, kill all queued (not-yet-started) parts immediately,
+        and close the HTTP session so blocked socket reads fail fast."""
         self._cancel_ev.set()
+        # Without this, queued futures only get cancelled when the NEXT running
+        # future happens to complete — meanwhile the pool keeps starting new
+        # parts. cancel_futures=True empties the queue right now.
+        if self._executor:
+            try:
+                self._executor.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
         if self._session:
             try:
                 self._session.close()
@@ -402,6 +563,7 @@ class API:
                 part_files=part_files,
                 skipped=skipped,
                 output_path=output,
+                custom_logo_path=_load_cfg().get("custom_logo_path", ""),
             )
             with self._lock:
                 self._progress["output_path"] = output
@@ -422,6 +584,309 @@ class API:
         dest = result[0] if isinstance(result, (list, tuple)) else result
         shutil.copy2(source_path, dest)
         return {"ok": True, "path": dest}
+
+    # ── Re-search a single part after the run (GUI review feature) ───────────
+    def _settle_old_job(self, timeout: float = 20.0) -> bool:
+        """Make sure every thread from the previous job is REALLY dead, then
+        install a brand-new cancel event for the next operation.
+
+        The old (broken) version set the module-global cancel event to None
+        after a 5s join — but lingering worker threads read that same global,
+        so they'd suddenly see "not cancelled" and RESUME downloading the rest
+        of the BOM the moment the user clicked 'Search again'.
+
+        Returns True when it is safe to proceed, False if old threads are
+        still winding down (caller should tell the user to retry shortly)."""
+        # Keep the old event SET the whole time so lingering threads keep
+        # seeing _is_cancelled()==True and exit at their next check.
+        self._cancel_ev.set()
+        if self._executor:
+            try:
+                self._executor.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
+        if self._job_thread and self._job_thread.is_alive():
+            self._job_thread.join(timeout=5)
+            if self._job_thread.is_alive():
+                return False
+
+        deadline = time.monotonic() + timeout
+        while True:
+            with self._lock:
+                if self._active_workers == 0:
+                    break
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(0.15)
+
+        # All old threads are gone — NOW it's safe to arm a fresh, unset event.
+        self._cancel_ev = threading.Event()
+        bd.set_cancel_event(self._cancel_ev)
+        self._executor = None
+        return True
+
+    def _part_by_idx(self, idx: int):
+        for p in self._progress.get("parts", []):
+            if p["idx"] == int(idx):
+                return p
+        return None
+
+    def research_part(self, idx: int, manufacturer: str = None,
+                      part_number: str = None) -> dict:
+        """Run the full search cascade again for ONE part and return the
+        candidate URLs, annotated so the UI can show suggestions.
+        Optional manufacturer/part_number override the stored values — for
+        fixing BOM typos (e.g. Rittal 8205.521 → 8208.521) without re-running.
+        Corrections are saved on the part so Keep / Auto-pick / the merged
+        catalog all use the corrected identity."""
+        with self._lock:
+            status = self._progress.get("status")
+        if status not in ("done", "cancelled"):
+            return {"ok": False, "error": "Re-search is available after the job finishes."}
+        part = self._part_by_idx(idx)
+        if not part:
+            return {"ok": False, "error": "Unknown part index."}
+
+        with self._lock:
+            if manufacturer is not None and manufacturer.strip() != "":
+                part["manufacturer"] = manufacturer.strip()
+            if part_number is not None and part_number.strip() != "":
+                part["part_number"] = part_number.strip()
+        mfr, model = part.get("manufacturer", ""), part.get("part_number", "")
+        desc = part.get("description", "")
+        if not self._settle_old_job():      # stop lingering threads first
+            return {"ok": False, "error":
+                    "Still stopping the previous downloads — wait a few seconds and try again."}
+        bd.set_progress_callback(None)          # don't disturb finished-job counters
+        bd.tprint(f"    [Re-search] {mfr} {model}: starting candidate search…")
+        my_ev = self._cancel_ev                 # the event governing THIS op
+        s = _make_session()
+
+        # Ensure catalog sources are loaded/configured in case of standalone calls
+        cfg = _load_cfg()
+        bd.set_catalog_dirs([p.strip() for p in
+                             str(cfg.get("catalog_folder", "")).split(";")
+                             if p.strip()])
+
+        # Count this op as a live worker: if the user closes the modal or starts
+        # a re-search for ANOTHER part, _settle_old_job() cancels this op and
+        # WAITS for it to exit before installing a fresh (unset) cancel event —
+        # so this op can never be accidentally "un-cancelled" and keep running.
+        with self._lock:
+            self._active_workers += 1
+        bd.set_search_deadline(120)             # bounded — DDG rate-limits can otherwise
+                                                # silently grind for many minutes
+        try:
+            cands = bd._find_pdfs(model, mfr, s, desc, force=True) or []
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+        finally:
+            bd.set_search_deadline(None)
+            with self._lock:
+                self._active_workers -= 1
+            try: s.close()
+            except Exception: pass
+
+        if my_ev.is_set():                      # closed / superseded mid-search
+            bd.tprint(f"    [Re-search] {mfr} {model}: aborted by user")
+            return {"ok": False, "error": "Search cancelled.", "cancelled": True}
+
+        # Check catalog matches and prepend them to candidate list
+        cat_hits = []
+        try:
+            for name, ref in bd._catalog_lookup(model, mfr, desc, s):
+                url = ref.get("url") or f"catalog://{ref.get('id') or name}"
+                cat_hits.append({
+                    "url": url,
+                    "title": name,
+                    "referer": "Catalog fallback",
+                    "ref": ref
+                })
+        except Exception as e:
+            bd.tprint(f"    [Re-search] catalog lookup failed: {e}")
+
+        # Combine cands, prioritizing catalog results
+        seen_urls = set()
+        combined_cands = []
+        for c in cat_hits:
+            if c["url"] not in seen_urls:
+                seen_urls.add(c["url"])
+                combined_cands.append(c)
+        for c in cands:
+            if c["url"] not in seen_urls:
+                seen_urls.add(c["url"])
+                combined_cands.append(c)
+
+        self._research_cache[int(idx)] = {c["url"]: c for c in combined_cands}
+        out = []
+        for i, c in enumerate(combined_cands):
+            if c.get("ref"):
+                out.append({
+                    "url":       c["url"],
+                    "title":     c["title"],
+                    "domain":    "Catalog fallback",
+                    "kind":      "manual" if bd._name_doc_type(c["url"], c["title"]) == "manual" else "datasheet",
+                    "official":  True,
+                    "suggested": i == 0,
+                })
+            else:
+                kind = bd._name_doc_type(c["url"], c["title"]) or ""
+                out.append({
+                    "url":       c["url"],
+                    "title":     c["title"],
+                    "domain":    bd._dom(c["url"]),
+                    "kind":      kind if kind in ("manual", "datasheet") else "",
+                    "official":  bd._is_own_mfr_domain(c["url"], mfr),
+                    "suggested": i == 0,
+                })
+        return {"ok": True, "part": {"idx": part["idx"], "manufacturer": mfr,
+                                     "part_number": model},
+                "candidates": out}
+
+    def keep_candidate(self, idx: int, url: str) -> dict:
+        """Download ONE user-chosen candidate into the output folder, strip/
+        reject protection, verify, and mark the part as found."""
+        part = self._part_by_idx(idx)
+        if not part:
+            return {"ok": False, "error": "Unknown part index."}
+        cand = self._research_cache.get(int(idx), {}).get(url)
+        if not cand:
+            # Pasted/unknown URL — derive a usable title from the last
+            # non-empty path segment (handles trailing slashes, no .pdf ext)
+            seg = [s for s in url.split("?")[0].split("/") if s]
+            cand = {"url": url, "title": (seg[-1] if seg else "document"),
+                    "referer": None}
+        folder = Path(self._progress.get("output_folder") or
+                      _load_cfg()["output_folder"])
+        folder.mkdir(parents=True, exist_ok=True)
+        mfr, model = part.get("manufacturer", ""), part.get("part_number", "")
+
+        if not self._settle_old_job():
+            return {"ok": False, "error":
+                    "Still stopping the previous downloads — wait a few seconds and try again."}
+        bd.set_progress_callback(None)
+        dest = bd.candidate_dest(folder, int(idx), mfr, model, cand["title"])
+        s = _make_session()
+        with self._lock:
+            self._active_workers += 1
+        try:
+            if cand.get("ref"):
+                if not bd._fetch_catalog_pdf(cand["ref"], dest, s):
+                    return {"ok": False, "error": "Failed to copy/download catalog file."}
+            else:
+                if not bd._write_pdf(url, dest, s, cand.get("referer")):
+                    return {"ok": False, "error": "Download failed (not a valid PDF or blocked)."}
+        finally:
+            with self._lock:
+                self._active_workers -= 1
+            try: s.close()
+            except Exception: pass
+
+        ok, note = bd._ensure_unprotected(dest)
+        if not ok:
+            try: dest.unlink()
+            except Exception: pass
+            return {"ok": False, "error": f"Rejected: {note}"}
+
+        dtype, _q, vnote = bd._verify_pdf(
+            dest, model, mfr, bd._name_doc_type(url, cand["title"]),
+            src_url=url, src_title=cand["title"],
+            desc=part.get("description", ""))
+        if dtype == "unreadable":
+            try: dest.unlink()
+            except Exception: pass
+            return {"ok": False, "error": "The downloaded file is corrupt/unreadable."}
+
+        with self._lock:
+            was_found = part["status"] == "found"
+            part["status"] = "found"
+            part["files"]  = [str(dest)]
+            if not was_found:
+                self._progress["found"]     = self._progress.get("found", 0) + 1
+                self._progress["not_found"] = max(0, self._progress.get("not_found", 0) - 1)
+        warn = dtype in bd._REJECT_TYPES or dtype == "unknown"
+        return {"ok": True, "file": str(dest), "doc_type": dtype,
+                "note": vnote, "warning": warn}
+
+    def auto_pick(self, idx: int) -> dict:
+        """Let the verified download pipeline pick the best document for ONE
+        part (same logic as the main run). Falls back to returning the
+        candidate list when nothing passes verification."""
+        with self._lock:
+            status = self._progress.get("status")
+        if status not in ("done", "cancelled"):
+            return {"ok": False, "error": "Available after the job finishes."}
+        part = self._part_by_idx(idx)
+        if not part:
+            return {"ok": False, "error": "Unknown part index."}
+        folder = Path(self._progress.get("output_folder") or
+                      _load_cfg()["output_folder"])
+        folder.mkdir(parents=True, exist_ok=True)
+        mfr, model = part.get("manufacturer", ""), part.get("part_number", "")
+
+        if not self._settle_old_job():      # stop lingering threads first
+            return {"ok": False, "error":
+                    "Still stopping the previous downloads — wait a few seconds and try again."}
+        bd.set_progress_callback(None)
+        bd.tprint(f"    [Auto-pick] {mfr} {model}: searching and verifying…")
+        my_ev = self._cancel_ev
+        s = _make_session()
+        with self._lock:
+            self._active_workers += 1
+        bd.set_search_deadline(150)
+        try:
+            res = bd._download_part(int(idx), mfr, model, folder, 1, s,
+                                    part.get("description", ""), force=True)
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+        finally:
+            bd.set_search_deadline(None)
+            with self._lock:
+                self._active_workers -= 1
+            try: s.close()
+            except Exception: pass
+
+        if my_ev.is_set():                      # closed / superseded mid-search
+            bd.tprint(f"    [Auto-pick] {mfr} {model}: aborted by user")
+            return {"ok": False, "error": "Search cancelled.", "cancelled": True}
+
+        self._research_cache[int(idx)] = {c["url"]: c for c in res.get("candidates", [])}
+        saved = res.get("saved") or []
+        if saved:
+            with self._lock:
+                was_found = part["status"] == "found"
+                part["status"] = "found"
+                part["files"]  = [str(f) for f in saved]
+                if not was_found:
+                    self._progress["found"]     = self._progress.get("found", 0) + 1
+                    self._progress["not_found"] = max(0, self._progress.get("not_found", 0) - 1)
+            return {"ok": True, "file": str(saved[0])}
+        cands = [{"url": c["url"], "title": c["title"], "domain": bd._dom(c["url"]),
+                  "kind": (bd._name_doc_type(c["url"], c["title"]) or "")
+                          if (bd._name_doc_type(c["url"], c["title"]) or "") in ("manual", "datasheet") else "",
+                  "official": bd._is_own_mfr_domain(c["url"], mfr),
+                  "suggested": i == 0}
+                 for i, c in enumerate(res.get("candidates", []))]
+        return {"ok": False, "error": "Nothing passed verification — pick manually below.",
+                "candidates": cands}
+
+    def cancel_research(self) -> dict:
+        """Abort any in-flight re-search / auto-pick / keep download.
+        Called when the user closes the Search-again modal. Safe to call when
+        nothing is running. Never touches an active main download job."""
+        if self._job_thread and self._job_thread.is_alive():
+            return {"ok": False, "error": "A download job is running — use Stop instead."}
+        self._cancel_ev.set()
+        return {"ok": True}
+
+    def open_url(self, url: str) -> dict:
+        """Open a URL in the system browser (candidate preview)."""
+        try:
+            import webbrowser
+            webbrowser.open(url)
+            return {"ok": True}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
 
     # ── PDF Merge Tool ────────────────────────────────────────────────────────
     def receive_merge_pdf(self, name: str, data_b64: str) -> dict:
@@ -490,6 +955,14 @@ class API:
                     continue
                 try:
                     reader = PdfReader(str(path))
+                    if reader.is_encrypted:
+                        try:
+                            if int(reader.decrypt("")) == 0:
+                                errors.append(f"{Path(path).name}: password-protected — skipped")
+                                continue
+                        except Exception:
+                            errors.append(f"{Path(path).name}: password-protected — skipped")
+                            continue
                     for page in reader.pages:
                         writer.add_page(page)
                     total_pages += len(reader.pages)
