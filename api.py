@@ -480,8 +480,12 @@ class API:
         self._retry_misses(parts, folder, max_dl)
 
         # Retry pass may have found originals late — propagate to their dups.
+        # Also a safety net for requeued/skipped originals: their futures live
+        # in _extra_futs and never pass through the as_completed loop above,
+        # so their duplicates can still be pending/searching here.
         for oi in dup_map:
-            _resolve_duplicates(oi, upgrade=True)
+            _resolve_duplicates(oi)                 # dups still pending/searching
+            _resolve_duplicates(oi, upgrade=True)   # dups not_found, original found late
 
         # Cancellation may have arrived mid-retry — handle it like the main pass
         # instead of falling through and mislabelling the job 'done'.
