@@ -408,12 +408,9 @@ def _model_desc_around_mfr(text: str, m) -> tuple:
     return after_model, after_desc
 
 def _dedup(parts):
-    seen, out = set(), []
-    for p in parts:
-        k = (p["manufacturer"].upper(), p["part_number"].upper())
-        if k not in seen and _looks_like_part(p["part_number"]):
-            seen.add(k); out.append(p)
-    return out
+    """Filter out invalid part numbers but KEEP duplicates in BOM order —
+    the UI flags them and lets the user keep or discard each one."""
+    return [p for p in parts if _looks_like_part(p["part_number"])]
 
 _HDR_MFR  = re.compile(r'(manufacturer|manuf\b|make\b|mfg|mfr|vendor|supplier|brand|maker|oem)', re.I)
 _HDR_PART = re.compile(r'(part[\s_\-]?(no|num|code)|mpn|mfr[\s_\-]?pn|model[\s_\-]?(no|num)?\b|p/?n\b'
