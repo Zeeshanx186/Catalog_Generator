@@ -1719,6 +1719,21 @@
     ::-webkit-scrollbar-thumb:hover {
       background: var(--border-hi);
     }
+
+    /* ── Duplicate part flags ── */
+    tr.dup-row td { background: rgba(245, 158, 11, .06); }
+    tr.dup-row td.idx { box-shadow: inset 3px 0 0 #f59e0b; }
+    .dup-badge {
+      display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 4px;
+      font-size: 10px; font-weight: 700; letter-spacing: .4px; white-space: nowrap;
+      color: #f59e0b; background: rgba(245, 158, 11, .12);
+      border: 1px solid rgba(245, 158, 11, .35); vertical-align: middle;
+    }
+    .dup-banner {
+      display: flex; align-items: center; gap: 12px; margin: 0 0 12px;
+      padding: 10px 14px; border: 1px solid rgba(245, 158, 11, .35);
+      border-radius: 8px; background: rgba(245, 158, 11, .08); font-size: 13px;
+    }
   </style>
 </head>
 
@@ -1979,6 +1994,12 @@
               </label>
             </div>
           </div>
+        </div>
+
+        <div class="dup-banner" id="dup-banner" style="display:none">
+          <span id="dup-banner-text"></span>
+          <div style="flex:1"></div>
+          <button class="btn btn-secondary btn-sm" onclick="discardAllDuplicates()">Discard all duplicates</button>
         </div>
 
         <!-- Parts table -->
@@ -2507,6 +2528,63 @@
       document.getElementById('btn-next-input').disabled = S.parts.length === 0;
     }
 
+    // ── Duplicate detection (live) ─────────────────────────────────────────────
+    function dupKeyOf(p) {
+      const pn = (p.part_number || '').trim().toUpperCase();
+      if (!pn) return null;                       // empty PN is never a duplicate
+      return (p.manufacturer || '').trim().toUpperCase() + '|' + pn;
+    }
+
+    // Returns per-row: null (normal / first occurrence) or the 0-based index
+    // of the FIRST occurrence this row duplicates.
+    function computeDuplicates(list) {
+      const seen = new Map();
+      return list.map((p, i) => {
+        const k = dupKeyOf(p);
+        if (k === null) return null;
+        if (seen.has(k)) return seen.get(k);
+        seen.set(k, i);
+        return null;
+      });
+    }
+
+    function dupBadge(origIdx1Based) {
+      return `<span class="dup-badge">DUP of #${String(origIdx1Based).padStart(3, '0')}</span>`;
+    }
+
+    function refreshDuplicateMarks() {
+      const dups = computeDuplicates(S.parts);
+      const rows = document.querySelectorAll('#parts-tbody tr');
+      rows.forEach((tr, i) => {
+        const d = dups[i];
+        tr.classList.toggle('dup-row', d !== null);
+        let badge = tr.querySelector('.dup-badge');
+        if (d !== null) {
+          if (!badge) {
+            badge = document.createElement('span');
+            badge.className = 'dup-badge';
+            tr.querySelector('td.pn').appendChild(badge);
+          }
+          badge.textContent = `DUP of #${String(d + 1).padStart(3, '0')}`;
+        } else if (badge) {
+          badge.remove();
+        }
+      });
+      const n = dups.filter(d => d !== null).length;
+      const banner = document.getElementById('dup-banner');
+      banner.style.display = n ? 'flex' : 'none';
+      if (n) document.getElementById('dup-banner-text').textContent =
+        `${n} duplicate part${n !== 1 ? 's' : ''} found — kept duplicates reuse the document of their first occurrence.`;
+    }
+
+    function discardAllDuplicates() {
+      const dups = computeDuplicates(S.parts);
+      S.parts = S.parts.filter((_, i) => dups[i] === null);
+      renderPartsTable();
+      document.getElementById('parts-count').textContent = S.parts.length;
+      toast('Duplicates discarded.', 'ok');
+    }
+
     // ── Go to Parts step ─────────────────────────────────────────────────────────
     function goToParts() {
       if (!S.parts.length) return;
@@ -2522,6 +2600,7 @@
       S.parts.forEach((p, i) => {
         tbody.appendChild(makePartRow(i, p));
       });
+      refreshDuplicateMarks();
     }
 
     function makePartRow(i, p) {
@@ -2550,6 +2629,7 @@
 
     function updatePart(i, field, val) {
       if (S.parts[i]) S.parts[i][field] = val;
+      if (field !== 'description') refreshDuplicateMarks();
     }
 
     function movePart(i, d) {
@@ -2627,7 +2707,13 @@
 
     // ── Start download ────────────────────────────────────────────────────────────
     async function startDownload() {
-      const validParts = S.parts.filter(p => p.part_number && p.part_number.trim());
+      const validParts = S.parts
+        .filter(p => p.part_number && p.part_number.trim())
+        .map(p => ({ ...p }));
+      const dupIdx = computeDuplicates(validParts);
+      validParts.forEach((p, i) => {
+        p.duplicate_of = dupIdx[i] === null ? null : dupIdx[i] + 1;
+      });
       if (!validParts.length) { toast('No valid parts to download.', 'err'); return; }
 
       const opts = readSettings();
