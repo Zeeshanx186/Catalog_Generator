@@ -208,6 +208,8 @@ class API:
                         "manufacturer": p.get("manufacturer", ""),
                         "part_number":  p.get("part_number", ""),
                         "description":  p.get("description", ""),
+                        "duplicate_of": (int(p["duplicate_of"])
+                                         if p.get("duplicate_of") else None),
                         "status":       "pending",
                         "files":        [],
                     }
@@ -233,6 +235,20 @@ class API:
                              str(options.get("catalog_folder", "")).split(";")
                              if p.strip()])
 
+        # Duplicates: dup_map[original_idx] = [duplicate_idx, ...] (all 1-based).
+        # A duplicate is never searched — it reuses its original's document.
+        dup_map: dict[int, list[int]] = {}
+        dup_idxs: set[int] = set()
+        for i, p in enumerate(parts):
+            d = p.get("duplicate_of")
+            try:
+                d = int(d) if d else None
+            except (TypeError, ValueError):
+                d = None
+            if d and 1 <= d < i + 1 and d not in dup_idxs:
+                dup_map.setdefault(d, []).append(i + 1)
+                dup_idxs.add(i + 1)
+
         def _on_event(ev: dict) -> None:
             t = ev.get("type")
             # Log events are by far the most frequent. Keep them OFF the main
@@ -252,6 +268,13 @@ class API:
                         if p["idx"] == ev["idx"]:
                             p["status"] = "searching"
                             break
+                    for di in dup_map.get(ev["idx"], []):
+                        if di in self._skipped:
+                            continue
+                        for p in self._progress["parts"]:
+                            if p["idx"] == di and p["status"] == "pending":
+                                p["status"] = "searching"
+                                break
                 elif t == "part_done":
                     if ev["idx"] in self._skipped:
                         # Skipped mid-flight: skip_part() already set the status
@@ -294,6 +317,63 @@ class API:
                 with self._lock:
                     self._active_workers -= 1
 
+        def _resolve_duplicates(orig_idx: int, upgrade: bool = False) -> None:
+            """Give orig's duplicates a copy of its document (or not_found).
+            upgrade=True re-visits duplicates already marked not_found after
+            the retry pass found the original late."""
+            dups = dup_map.get(orig_idx, [])
+            if not dups:
+                return
+            with self._lock:
+                orig = next((p for p in self._progress["parts"]
+                             if p["idx"] == orig_idx), None)
+                src_files = [Path(f) for f in (orig.get("files") or [])] if orig else []
+                orig_found = bool(orig and orig.get("status") == "found" and src_files)
+            for d in dups:
+                with self._lock:
+                    dp = next((p for p in self._progress["parts"] if p["idx"] == d), None)
+                    if dp is None:
+                        continue
+                    if upgrade:
+                        if not (dp["status"] == "not_found" and not dp["files"]):
+                            continue
+                    elif dp["status"] not in ("pending", "searching"):
+                        continue        # skipped by user or already resolved
+                if upgrade and not orig_found:
+                    continue
+                files = []
+                if orig_found:
+                    safe = bd._sanitize(
+                        f"{dp['manufacturer']}_{dp['part_number']}".strip("_").replace(" ", "_"))
+                    for sf in src_files:
+                        try:
+                            if sf.is_file():
+                                dest = folder / f"{d:03d}_{safe}__COPY_OF_{orig_idx:03d}.pdf"
+                                shutil.copyfile(sf, dest)
+                                files.append(str(dest))
+                        except Exception as e:
+                            with self._log_lock:
+                                self._log.append(
+                                    f"    [Error] duplicate #{d:03d} copy failed: {e!r}")
+                st = "found" if files else "not_found"
+                with self._lock:
+                    dp["status"] = st
+                    dp["files"]  = files
+                    if upgrade:
+                        self._progress["found"]     += 1
+                        self._progress["not_found"] -= 1
+                    else:
+                        self._progress["done"] += 1
+                        self._progress["found" if st == "found" else "not_found"] += 1
+                with self._log_lock:
+                    if files:
+                        self._log.append(
+                            f"    [Duplicate] #{d:03d} reuses #{orig_idx:03d}'s document")
+                    else:
+                        self._log.append(
+                            f"    [Duplicate] #{d:03d}: original #{orig_idx:03d} "
+                            f"found nothing - marked not found")
+
         # Kept for requeue_part(): re-queued parts submit through the same
         # tracked wrapper with the same folder/quota as the main pass.
         self._run_ctx = {"folder": folder, "max_dl": max_dl,
@@ -319,6 +399,7 @@ class API:
                     p.get("description", ""),
                 ): i + 1
                 for i, p in enumerate(parts)
+                if (i + 1) not in dup_idxs
             }
 
             for fut in as_completed(fut_map):
@@ -330,6 +411,7 @@ class API:
                 idx = fut_map[fut]
                 try:
                     part_results[idx] = fut.result()
+                    _resolve_duplicates(idx)
                 except Exception as e:
                     # A crashed worker never emits part_done — surface the error
                     # and close the part out so its card doesn't sit on
@@ -344,6 +426,10 @@ class API:
                                 self._progress["done"] += 1
                                 self._progress["not_found"] += 1
                                 break
+                    _resolve_duplicates(idx)
+
+            for d in dup_idxs:
+                part_results.setdefault(d, {"saved": [], "candidates": []})
 
             # Wait for any parts the user skipped and then re-queued — their
             # futures aren't in fut_map, so as_completed() above ignores them.
@@ -392,6 +478,10 @@ class API:
         # portal mirror (e.g. ABB). Re-run those misses ONE AT A TIME with the
         # engines forced — the same thing the manual 'Search again' button does.
         self._retry_misses(parts, folder, max_dl)
+
+        # Retry pass may have found originals late — propagate to their dups.
+        for oi in dup_map:
+            _resolve_duplicates(oi, upgrade=True)
 
         # Cancellation may have arrived mid-retry — handle it like the main pass
         # instead of falling through and mislabelling the job 'done'.
@@ -452,7 +542,8 @@ class API:
             return
         with self._lock:
             misses = [p for p in self._progress["parts"]
-                      if p.get("status") == "not_found"]
+                      if p.get("status") == "not_found"
+                      and not p.get("duplicate_of")]
         if not misses:
             return
 
