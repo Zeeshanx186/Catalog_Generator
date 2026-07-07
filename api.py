@@ -345,10 +345,11 @@ class API:
                 if orig_found:
                     safe = bd._sanitize(
                         f"{dp['manufacturer']}_{dp['part_number']}".strip("_").replace(" ", "_"))
-                    for sf in src_files:
+                    for k, sf in enumerate(src_files):
                         try:
                             if sf.is_file():
-                                dest = folder / f"{d:03d}_{safe}__COPY_OF_{orig_idx:03d}.pdf"
+                                suffix = f"_{k}" if k else ""
+                                dest = folder / f"{d:03d}_{safe}__COPY_OF_{orig_idx:03d}{suffix}.pdf"
                                 shutil.copyfile(sf, dest)
                                 files.append(str(dest))
                         except Exception as e:

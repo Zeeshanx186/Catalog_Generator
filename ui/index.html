@@ -3132,7 +3132,7 @@
         actionCell = `${searchBtn} ${insertBtn}`;
       }
       const badge = found
-        ? `<span class="res-status found">✓ Found</span>`
+        ? `<span class="res-status found">✓ Found${p.duplicate_of ? ' (duplicate)' : ''}</span>`
         : p.status === 'skipped'
           ? `<span class="res-status skipped">— Skipped</span>`
           : `<span class="res-status not_found">✗ Not found</span>`;

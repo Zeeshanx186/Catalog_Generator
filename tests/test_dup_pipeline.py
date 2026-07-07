@@ -16,10 +16,15 @@ def fake_download_part(idx, mfr, model, folder, max_dl, session, desc="", force=
     if model == "NOPE-1":
         bd._emit("part_done", idx=idx, label=f"{mfr} {model}", status="not_found", files=[])
         return {"saved": [], "candidates": []}
-    dest = Path(folder) / f"{idx:03d}_{mfr}_{model}.pdf"
-    _write_pdf(dest)
-    bd._emit("part_done", idx=idx, label=f"{mfr} {model}", status="found", files=[str(dest)])
-    return {"saved": [dest], "candidates": []}
+    n_files = 2 if model == "8108.245" else 1
+    saved = []
+    for j in range(n_files):
+        dest = Path(folder) / f"{idx:03d}_{mfr}_{model}_{j}.pdf"
+        _write_pdf(dest)
+        saved.append(dest)
+    bd._emit("part_done", idx=idx, label=f"{mfr} {model}", status="found",
+             files=[str(f) for f in saved])
+    return {"saved": saved, "candidates": []}
 
 bd._download_part = fake_download_part
 
@@ -33,7 +38,7 @@ parts = [
 
 a = api_mod.API(); a.window = None
 r = a.start_download(parts, {"output_folder": str(out_dir), "workers": 2,
-                             "max_per_part": 1, "no_merge": True})
+                             "max_per_part": 2, "no_merge": True})
 assert r["ok"], r
 
 deadline = time.time() + 60
@@ -49,8 +54,10 @@ assert st[1]["status"] == "found"
 assert st[2]["status"] == "found"
 # Duplicate of a found part: found, with a COPY file under its own prefix
 assert st[3]["status"] == "found", st[3]
-assert st[3]["files"] and "COPY_OF_001" in st[3]["files"][0], st[3]["files"]
-assert Path(st[3]["files"][0]).is_file()
+assert len(st[3]["files"]) == 2, st[3]["files"]
+assert len(set(st[3]["files"])) == 2, "copied filenames must be distinct"
+for f in st[3]["files"]:
+    assert "COPY_OF_001" in f and Path(f).is_file(), f
 assert st[3]["duplicate_of"] == 1
 # Duplicate of a not-found part: not found, no files
 assert st[4]["status"] == "not_found"
