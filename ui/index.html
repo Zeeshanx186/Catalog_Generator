@@ -903,6 +903,64 @@
       color: var(--red);
     }
 
+    .part-card.skipped {
+      opacity: .55;
+    }
+
+    .part-card.skipped::before {
+      background: var(--muted);
+    }
+
+    .part-card.skipped .dot {
+      background: var(--muted);
+    }
+
+    .part-card.skipped .card-status {
+      color: var(--muted);
+    }
+
+    /* Per-card skip (✕) / re-queue (search) buttons in the header row */
+    .card-act {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      padding: 0;
+      margin-left: 6px;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      color: var(--muted);
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: color .15s, border-color .15s;
+    }
+
+    .card-act svg {
+      width: 10px;
+      height: 10px;
+    }
+
+    .card-act.skip:hover {
+      color: var(--red);
+      border-color: rgba(239, 68, 68, .4);
+    }
+
+    .card-act.requeue:hover {
+      color: var(--accent);
+      border-color: rgba(245, 158, 11, .4);
+    }
+
+    .part-card.pending .card-act.skip,
+    .part-card.searching .card-act.skip {
+      display: inline-flex;
+    }
+
+    .part-card.skipped .card-act.requeue {
+      display: inline-flex;
+    }
+
     /* Part number — full text, wraps cleanly */
     .card-pn {
       font-family: var(--mono);
@@ -1105,6 +1163,11 @@
     .res-status.found {
       color: var(--green);
       background: var(--green-dim);
+    }
+
+    .res-status.skipped {
+      background: rgba(148, 163, 184, .12);
+      color: var(--muted);
     }
 
     .res-status.not_found {
@@ -1774,7 +1837,7 @@
         <div id="mode-bom">
           <div class="drop-zone" id="drop-bom" ondragover="onDragOver(event,'drop-bom')"
             ondragleave="onDragLeave(event,'drop-bom')" ondrop="onDrop(event,'bom')">
-            <input type="file" id="file-bom" accept=".pdf,.xlsx,.xls,.md,.txt" onchange="onFileInput(event,'bom')">
+            <input type="file" id="file-bom" accept=".pdf,.xlsx,.xls,.docx,.md,.txt" onchange="onFileInput(event,'bom')">
             <div class="drop-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -1785,7 +1848,7 @@
             </div>
             <div class="drop-title">Drop your BOM file here</div>
             <div class="drop-sub">or click to browse</div>
-            <div class="drop-types">PDF &nbsp;·&nbsp; XLSX / XLS &nbsp;·&nbsp; Markdown &nbsp;·&nbsp; TXT</div>
+            <div class="drop-types">PDF &nbsp;·&nbsp; XLSX / XLS &nbsp;·&nbsp; DOCX &nbsp;·&nbsp; Markdown &nbsp;·&nbsp; TXT</div>
           </div>
           <div class="drop-file-info" id="bom-file-info">
             <svg class="drop-file-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -1927,7 +1990,7 @@
                 <th style="width:180px">Manufacturer</th>
                 <th style="width:160px">Part Number</th>
                 <th>Description</th>
-                <th style="width:60px"></th>
+                <th style="width:110px"></th>
               </tr>
             </thead>
             <tbody id="parts-tbody"></tbody>
@@ -2157,6 +2220,14 @@
             </svg>
             <span>Merge Selected</span>
           </button>
+          <button class="btn btn-secondary" onclick="openAddPart(-1)"
+            title="Add a new part to the list — use the + button on a row to insert it there instead">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            Add Part
+          </button>
           <button class="btn btn-ghost" onclick="goTo(2)" title="Review the download activity log">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polyline points="4 17 10 11 4 5" />
@@ -2184,7 +2255,7 @@
                 <th style="width:160px">Part Number</th>
                 <th>Description</th>
                 <th style="width:110px">Status</th>
-                <th style="width:90px">File</th>
+                <th style="width:230px">Actions</th>
               </tr>
             </thead>
             <tbody id="results-tbody"></tbody>
@@ -2229,6 +2300,13 @@
             title="Download this link, verify it, and save it for this part">
             Download &amp; Keep
           </button>
+          <button class="btn btn-secondary btn-sm" id="btn-upload-pdf" onclick="uploadOwnPdf()"
+            title="Pick a PDF from your computer and use it for this part">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Upload PDF
+          </button>
         </div>
       </div>
       <div class="modal-foot">
@@ -2245,6 +2323,46 @@
           Rebuild Merged PDF
         </button>
         <button class="btn btn-ghost" onclick="closeResearch()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ Add-part modal ════════════════════════════════════════════════════ -->
+  <div class="modal-overlay" id="addpart-overlay" onclick="if(event.target===this)closeAddPart()">
+    <div class="modal" style="max-width:520px">
+      <div class="modal-hdr">
+        <h2 id="addpart-title">Add part</h2>
+        <button class="modal-close" onclick="closeAddPart()" title="Close">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex;gap:8px;margin-bottom:10px;">
+          <input class="field-input" id="addpart-mfr" type="text" placeholder="Manufacturer (optional)"
+            style="flex:0 0 190px;" onkeydown="if(event.key==='Enter')submitAddPart()">
+          <input class="field-input" id="addpart-pn" type="text" placeholder="Part number" style="flex:1;"
+            onkeydown="if(event.key==='Enter')submitAddPart()">
+        </div>
+        <input class="field-input" id="addpart-desc" type="text" placeholder="Description (optional)"
+          style="width:100%;" onkeydown="if(event.key==='Enter')submitAddPart()">
+        <div class="modal-status" style="margin-top:10px;">
+          The list is renumbered automatically. After adding, the search window opens so you can
+          find or upload its document.
+        </div>
+      </div>
+      <div class="modal-foot">
+        <div style="flex:1"></div>
+        <button class="btn btn-ghost" onclick="closeAddPart()">Cancel</button>
+        <button class="btn btn-primary" id="btn-addpart-submit" onclick="submitAddPart()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+          Add Part
+        </button>
       </div>
     </div>
   </div>
@@ -2417,7 +2535,9 @@
       oninput="updatePart(${i},'part_number',this.value)" style="color:var(--accent)"></td>
     <td class="desc"><input class="cell-edit" value="${esc(p.description || '')}" placeholder="Description (optional)"
       oninput="updatePart(${i},'description',this.value)"></td>
-    <td class="actions">
+    <td class="actions" style="white-space:nowrap">
+      <button class="row-btn" title="Move up" ${i === 0 ? 'disabled' : ''} onclick="movePart(${i},-1)">${_svgUp}</button>
+      <button class="row-btn" title="Move down" ${i === S.parts.length - 1 ? 'disabled' : ''} onclick="movePart(${i},1)">${_svgDown}</button>
       <button class="del-btn" onclick="deletePart(${i})" title="Remove">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
@@ -2430,6 +2550,13 @@
 
     function updatePart(i, field, val) {
       if (S.parts[i]) S.parts[i][field] = val;
+    }
+
+    function movePart(i, d) {
+      const j = i + d;
+      if (j < 0 || j >= S.parts.length) return;
+      [S.parts[i], S.parts[j]] = [S.parts[j], S.parts[i]];
+      renderPartsTable();   // numbering is derived from position, so it renumbers itself
     }
 
     function deletePart(i) {
@@ -2534,7 +2661,19 @@
         card.innerHTML = `
       <div class="card-header">
         <div class="card-status"><span class="dot"></span><span class="card-status-txt">Pending</span></div>
-        <span class="card-idx">#${String(i + 1).padStart(3, '0')}</span>
+        <span style="display:flex;align-items:center;">
+          <span class="card-idx">#${String(i + 1).padStart(3, '0')}</span>
+          <button class="card-act skip" title="Skip this part — don't search for its document"
+            onclick="skipPart(${i + 1})">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+          <button class="card-act requeue" title="Search this part after all"
+            onclick="requeuePart(${i + 1})">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></svg>
+          </button>
+        </span>
       </div>
       <div class="card-pn">${esc(p.part_number)}</div>
       <div class="card-mfr">${esc(p.manufacturer || '—')}</div>
@@ -2561,7 +2700,7 @@
         const card = document.getElementById(`card-${p.idx}`);
         if (!card) return;
         card.className = `part-card ${p.status}`;
-        const labels = { pending: 'Pending', searching: 'Searching…', found: 'Found', not_found: 'Not found' };
+        const labels = { pending: 'Pending', searching: 'Searching…', found: 'Found', not_found: 'Not found', skipped: 'Skipped' };
         card.querySelector('.card-status-txt').textContent = labels[p.status] || p.status;
 
         // Instant access: show Open button as soon as a file is downloaded — no waiting
@@ -2650,6 +2789,28 @@
       toast(ok ? `Activity log copied (${text.split('\n').length} lines).`
         : 'Could not access the clipboard — select the log text manually.',
         ok ? 'ok' : 'err');
+    }
+
+    // ── Per-part skip / re-queue during the run ──────────────────────────────────
+    async function skipPart(idx) {
+      const card = document.getElementById(`card-${idx}`);
+      if (card) {                        // instant feedback; poll confirms it
+        card.className = 'part-card skipped';
+        card.querySelector('.card-status-txt').textContent = 'Skipped';
+      }
+      const r = await pyapi('skip_part', idx);
+      if (!r.ok) toast(r.error || 'Could not skip this part.', 'err');
+      // if it failed, the next poll restores the card's real status
+    }
+
+    async function requeuePart(idx) {
+      const card = document.getElementById(`card-${idx}`);
+      if (card) {
+        card.className = 'part-card pending';
+        card.querySelector('.card-status-txt').textContent = 'Pending';
+      }
+      const r = await pyapi('requeue_part', idx);
+      if (!r.ok) toast(r.error || 'Could not re-queue this part.', 'err');
     }
 
     // ── Cancel — stops job AND shows whatever was downloaded so far ───────────────
@@ -2863,6 +3024,14 @@
     // ── Results row template (shared by initial render and live updates) ─────────
     function resRowHTML(p) {
       const found = p.status === 'found' && p.files && p.files.length > 0;
+      const searchBtn = `<button class="btn btn-secondary btn-sm research-btn"
+      onclick="openResearch(${p.idx})" title="Search the web again, upload your own PDF, or pick a different document for this part">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></svg>Search again</button>`;
+      const insertBtn = `<button class="btn btn-ghost btn-sm research-btn"
+      onclick="openAddPart(${p.idx})" title="Insert a new part below this row">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>`;
       let actionCell = '';
       if (found) {
         const fp = p.files[0].replace(/\\/g, '\\\\');
@@ -2870,16 +3039,15 @@
       onclick="pyapi('open_in_viewer','${fp}')">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-        <polyline points="14 2 14 8 20 8"/></svg>Open</button>`;
+        <polyline points="14 2 14 8 20 8"/></svg>Open</button> ${searchBtn} ${insertBtn}`;
       } else {
-        actionCell = `<button class="btn btn-secondary btn-sm research-btn"
-      onclick="openResearch(${p.idx})" title="Search the web again and pick a PDF for this part">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-        <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.5" y2="16.5"/></svg>Search again</button>`;
+        actionCell = `${searchBtn} ${insertBtn}`;
       }
       const badge = found
         ? `<span class="res-status found">✓ Found</span>`
-        : `<span class="res-status not_found">✗ Not found</span>`;
+        : p.status === 'skipped'
+          ? `<span class="res-status skipped">— Skipped</span>`
+          : `<span class="res-status not_found">✗ Not found</span>`;
       return `
       <td>${found ? `<input type="checkbox" class="res-check" value="${p.idx}" onchange="updateMergeSelBtn()">` : ''}</td>
       <td class="idx">${String(p.idx).padStart(3, '0')}</td>
@@ -2887,7 +3055,7 @@
       <td class="pn">${esc(p.part_number)}</td>
       <td class="desc" style="font-size:12px;color:var(--muted)">${esc(p.description || '')}</td>
       <td>${badge}</td>
-      <td style="width:120px">${actionCell}</td>`;
+      <td style="white-space:nowrap">${actionCell}</td>`;
     }
 
     function markPartFound(idx, file) {
@@ -3074,6 +3242,79 @@
       } else {
         toast(`Saved as ${(r.doc_type || 'DOC').toUpperCase()}. Use "Rebuild Merged PDF" to update the catalog.`, 'ok');
       }
+    }
+
+    async function uploadOwnPdf() {
+      if (R.idx == null) return;
+      const idx = R.idx;
+      const btn = document.getElementById('btn-upload-pdf');
+      const orig = btn.innerHTML;
+      btn.disabled = true; btn.textContent = 'Uploading…';
+      // Deliberately NOT gated on R.busy — a local file copy doesn't disturb an
+      // in-flight web search, so the user can upload without waiting for it.
+      const r = await pyapi('upload_own_pdf', idx);
+      btn.disabled = false; btn.innerHTML = orig;
+      if (R.idx !== idx || r.cancelled) return;        // modal switched/closed or dialog dismissed
+      if (!r.ok) { toast(r.error || 'Could not use that file.', 'err'); return; }
+      markPartFound(idx, r.file);
+      if (r.warning) {
+        toast(`Saved your file, but it looks like a ${(r.doc_type || '').replace('_', ' ')} — kept anyway since you chose it.`, 'err');
+      } else {
+        toast(`Saved as ${(r.doc_type || 'DOC').toUpperCase()}. Use "Rebuild Merged PDF" to update the catalog.`, 'ok');
+      }
+    }
+
+    // ── Add-part modal (Results page) ────────────────────────────────────────────
+    const AP = { afterIdx: -1 };
+
+    function openAddPart(afterIdx) {
+      AP.afterIdx = afterIdx;
+      document.getElementById('addpart-title').textContent =
+        afterIdx > 0 ? `Add part — after #${String(afterIdx).padStart(3, '0')}` : 'Add part — at the end';
+      document.getElementById('addpart-mfr').value = '';
+      document.getElementById('addpart-pn').value = '';
+      document.getElementById('addpart-desc').value = '';
+      document.getElementById('addpart-overlay').classList.add('visible');
+      document.getElementById('addpart-pn').focus();
+    }
+
+    function closeAddPart() {
+      document.getElementById('addpart-overlay').classList.remove('visible');
+    }
+
+    async function submitAddPart() {
+      const mfr = document.getElementById('addpart-mfr').value.trim();
+      const pn = document.getElementById('addpart-pn').value.trim();
+      const desc = document.getElementById('addpart-desc').value.trim();
+      if (!pn) { toast('Enter a part number first.', 'err'); return; }
+      const btn = document.getElementById('btn-addpart-submit');
+      btn.disabled = true;
+      const r = await pyapi('add_part', AP.afterIdx, mfr, pn, desc);
+      btn.disabled = false;
+      if (!r.ok) { toast(r.error || 'Could not add the part.', 'err'); return; }
+      closeAddPart();
+
+      // Re-render the whole table — every idx after the insert point changed
+      S.resultParts = r.parts || [];
+      const tbody = document.getElementById('results-tbody');
+      tbody.innerHTML = '';
+      S.resultParts.forEach(p => {
+        const tr = document.createElement('tr');
+        tr.dataset.idx = p.idx;
+        tr.innerHTML = resRowHTML(p);
+        tbody.appendChild(tr);
+      });
+      document.getElementById('res-found').textContent = r.found;
+      document.getElementById('res-notfound').textContent = r.not_found;
+      document.getElementById('res-total').textContent = r.total;
+      const allBox = document.getElementById('res-check-all');
+      if (allBox) allBox.checked = false;
+      updateMergeSelBtn();
+
+      const tr = document.querySelector(`#results-tbody tr[data-idx="${r.new_idx}"]`);
+      if (tr) tr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      toast(`Part added at #${String(r.new_idx).padStart(3, '0')}.`, 'ok');
+      openResearch(r.new_idx);   // jump straight into finding its document
     }
 
     function closeResearch() {

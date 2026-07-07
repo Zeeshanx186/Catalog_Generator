@@ -214,8 +214,31 @@ def _emit(event_type: str, **kwargs):
         try: _progress_cb({"type": event_type, **kwargs})
         except Exception: pass
 
+# ── Per-part skip (GUI: ✕ on a card while the run is live) ───────────────────
+# _download_part records which part its worker thread is handling in a thread-
+# local; _is_cancelled() then also reports True when the GUI has skipped THAT
+# part. Every existing cancellation checkpoint in the search/download cascade
+# thereby aborts just this one part without touching the others.
+_skip_check : callable = None            # fn(idx) -> bool, installed by the GUI
+_current_part_tl = threading.local()     # .idx of the part this thread works on
+
+def set_skip_check(fn):
+    global _skip_check
+    _skip_check = fn
+
+def _part_skipped() -> bool:
+    if _skip_check is None:
+        return False
+    idx = getattr(_current_part_tl, "idx", None)
+    if idx is None:
+        return False
+    try:
+        return bool(_skip_check(idx))
+    except Exception:
+        return False
+
 def _is_cancelled() -> bool:
-    return _cancel_ev is not None and _cancel_ev.is_set()
+    return (_cancel_ev is not None and _cancel_ev.is_set()) or _part_skipped()
 
 # ── Search time budget (used by the GUI's interactive re-search) ─────────────
 # When DDG rate-limits after a heavy run, the full search cascade can silently
@@ -252,7 +275,14 @@ def _should_stop_search() -> bool:
     return _is_cancelled() or _deadline_passed() or _part_deadline_passed()
 
 def tprint(*a, **k):
-    with _print_lock: print(*a, **k)
+    # Console output is cosmetic — it must NEVER kill a worker thread. In the
+    # frozen windowed build (and any piped run) stdout is cp1252-encoded, so
+    # characters like '→' raise UnicodeEncodeError; stdout can also be closed
+    # or missing entirely. The GUI gets its copy via _emit below regardless.
+    try:
+        with _print_lock: print(*a, **k)
+    except (UnicodeEncodeError, ValueError, OSError, AttributeError):
+        pass
     _emit("log", message=" ".join(str(x) for x in a))
 
 def _has(v):
@@ -358,6 +388,25 @@ def _split_model_desc(text: str):
 def _model_after_mfr(text: str) -> str:
     return _split_model_desc(text)[0]
 
+def _model_desc_around_mfr(text: str, m) -> tuple:
+    """Part number + description for a line containing a known manufacturer,
+    regardless of whether the BOM writes 'MFR PN desc' or 'PN MFR desc'.
+    `m` is the regex match of the manufacturer inside `text`.
+    Prefers the token AFTER the manufacturer (the historical layout); only
+    when that token carries no digits while the token BEFORE the match is a
+    strong part number does it flip to the 'PN first' reading."""
+    after_model, after_desc = _split_model_desc(text[m.end():])
+    before = text[:m.start()].strip().split()
+    b = before[-1].rstrip('.,') if before else ''
+    b_ok = (_looks_like_part(b) and bool(re.search(r'\d', b))
+            and not re.fullmatch(r'\d{1,3}', b))       # a bare 1-3 digit token is a row counter
+    a_ok = bool(after_model) and bool(re.search(r'\d', after_model))
+    if b_ok and not a_ok:
+        rest = text[m.end():].strip(' -–—:;,')
+        desc = rest if (len(rest) >= 4 and re.search(r'[A-Za-z]{2,}', rest)) else ''
+        return _clean_model(b), desc
+    return after_model, after_desc
+
 def _dedup(parts):
     seen, out = set(), []
     for p in parts:
@@ -366,24 +415,111 @@ def _dedup(parts):
             seen.add(k); out.append(p)
     return out
 
-_HDR_MFR  = re.compile(r'(manufacturer|make|mfr|vendor|supplier)', re.I)
-_HDR_PART = re.compile(r'(part[\s_\-]?no|part[\s_\-]?num|mpn|mfr[\s_\-]?pn|model[\s_\-]?no|p/?n\b)', re.I)
+_HDR_MFR  = re.compile(r'(manufacturer|manuf\b|make\b|mfg|mfr|vendor|supplier|brand|maker|oem)', re.I)
+_HDR_PART = re.compile(r'(part[\s_\-]?(no|num|code)|mpn|mfr[\s_\-]?pn|model[\s_\-]?(no|num)?\b|p/?n\b'
+                       r'|article[\s_\-]?(no|num|code)?\b|order[\s_\-]?(no|num|code)'
+                       r'|cat(alog(ue)?)?[\s_\-]?(no|num)|type[\s_\-]?(no|num|code))', re.I)
 _HDR_SKIP = re.compile(r'(qty|quantity|ref|unit|price|tag|rev)', re.I)
 _HDR_DESC = re.compile(r'(description|desc|item[\s_]?desc|material|component|service|function|notes?)', re.I)
 
 def _find_cols(header):
-    mc = next((i for i,h in enumerate(header) if _HDR_MFR.search(str(h)) and not _HDR_SKIP.search(str(h))), None)
+    # A header like "Manufacturer Part Number" is a PART column, never the
+    # manufacturer column — hence the "not _HDR_PART" guard on mc.
+    mc = next((i for i,h in enumerate(header) if _HDR_MFR.search(str(h)) and not _HDR_PART.search(str(h)) and not _HDR_SKIP.search(str(h))), None)
     pc = [i for i,h in enumerate(header) if _HDR_PART.search(str(h)) and not _HDR_SKIP.search(str(h))]
     dc = next((i for i,h in enumerate(header) if _HDR_DESC.search(str(h)) and not _HDR_PART.search(str(h)) and not _HDR_MFR.search(str(h))), None)
     return mc, pc, dc
 
+# ── Content-based column inference (headerless / unrecognised tables) ─────────
+def _cell_is_code(v):
+    """Looks like a part number: a compact alphanumeric code with digits —
+    not a sentence, not a qty/line counter, not a dimension with units."""
+    if not v or len(v) < 3 or len(v) > 40: return False
+    if v.count(' ') > 1: return False
+    if not re.search(r'\d', v): return False
+    if re.fullmatch(r'\d{1,4}([.,]\d+)?', v): return False            # qty / line no / price
+    if re.fullmatch(r'[\d.,]+\s*(mm|cm|m|kg|g|pcs?|packs?|ea|nos?|pc)\.?', v, re.I): return False
+    return bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9\-_./+ #]*", v))
+
+def _cell_is_known_mfr(v):
+    if not v or len(v) > 40: return False
+    return any(p.search(v) for p, _c in _MFR_PAT)
+
+def _cell_is_wordy(v):
+    return len(v) >= 12 and len(re.findall(r'[A-Za-z]{2,}', v)) >= 2
+
+def _infer_cols(rows):
+    """Work out which column holds what by scoring the CONTENT of every
+    column — used when the header row is missing or its names aren't
+    recognised, so any column order works.
+    Returns (mfr_col, [pn_col], desc_col, first_data_row)."""
+    cl = lambda v: re.sub(r'\s+', ' ', str(v or '')).strip()
+    sample = [r for r in rows if any(cl(c) for c in r)][:80]
+    if not sample: return None, [], None, 0
+    ncols = max(len(r) for r in sample)
+
+    # Skip the first row when it reads like a header (words only, no codes)
+    first = [cl(c) for c in sample[0]]
+    data_start = 0
+    if first and not any(_cell_is_code(c) for c in first if c) \
+       and any(re.fullmatch(r'[A-Za-z ()/#.%-]{2,30}', c) for c in first if c):
+        data_start = 1
+    data = sample[data_start:]
+    if not data: return None, [], None, 0
+
+    stats = []
+    for col in range(ncols):
+        filled = [cl(r[col]) for r in data if col < len(r) and cl(r[col])]
+        n = len(filled)
+        if not n:
+            stats.append({"pn": 0, "mfr": 0, "desc": 0, "alpha": 0, "uniq": 1}); continue
+        stats.append({
+            "pn":    sum(_cell_is_code(c) for c in filled) / n,
+            "mfr":   sum(_cell_is_known_mfr(c) and not _cell_is_code(c) for c in filled) / n,
+            "desc":  sum(_cell_is_wordy(c) for c in filled) / n,
+            # short alphabetic labels with lots of repetition → manufacturer-ish
+            "alpha": sum(bool(re.fullmatch(r"[A-Za-z][A-Za-z&.\- ]{1,24}", c))
+                         and len(c.split()) <= 3 for c in filled) / n,
+            "uniq":  len(set(filled)) / n,
+        })
+
+    # Manufacturer: the column that keeps naming KNOWN manufacturers
+    mc = max(range(ncols), key=lambda i: stats[i]["mfr"], default=None)
+    if mc is None or stats[mc]["mfr"] < 0.3: mc = None
+
+    # Part number: the strongest code-like column (excluding the mfr column)
+    pn_ranked = sorted((i for i in range(ncols) if i != mc),
+                       key=lambda i: stats[i]["pn"], reverse=True)
+    pc = pn_ranked[0] if pn_ranked and stats[pn_ranked[0]]["pn"] >= 0.5 else None
+
+    # Description: the wordiest remaining column
+    d_ranked = sorted((i for i in range(ncols) if i != mc and i != pc),
+                      key=lambda i: stats[i]["desc"], reverse=True)
+    dc = d_ranked[0] if d_ranked and stats[d_ranked[0]]["desc"] >= 0.3 else None
+
+    # No known manufacturer found: fall back to a short-word, low-variety column
+    if mc is None:
+        m_ranked = sorted((i for i in range(ncols)
+                           if i != pc and i != dc
+                           and stats[i]["alpha"] >= 0.6 and stats[i]["uniq"] <= 0.6),
+                          key=lambda i: stats[i]["alpha"] * (1 - stats[i]["uniq"]),
+                          reverse=True)
+        mc = m_ranked[0] if m_ranked else None
+
+    return mc, ([pc] if pc is not None else []), dc, data_start
+
 def _rows_to_parts(rows):
-    if not rows or len(rows) < 2: return []
+    if not rows: return []
     cl = lambda v: re.sub(r'\s+', ' ', str(v or '')).strip()
     hdr = [cl(c) for c in rows[0]]; mc, pcs, dc = _find_cols(hdr)
-    if not pcs: return []
+    start = 1
+    if not pcs:
+        # Header row missing or unrecognised — infer the columns from the
+        # data itself so the file works no matter how columns are ordered.
+        mc, pcs, dc, start = _infer_cols(rows)
+        if not pcs: return []
     parts = []
-    for row in rows[1:]:
+    for row in rows[start:]:
         cells = [cl(c) for c in row]
         for pc in pcs:
             pn   = cells[pc] if pc < len(cells) else ""
@@ -478,7 +614,7 @@ def _extract_pdf(path):
                 for pat, can in _MFR_PAT:
                     m = pat.search(line)
                     if not m: continue
-                    model, desc = _split_model_desc(line[m.end():])
+                    model, desc = _model_desc_around_mfr(line, m)
                     if (not model or len(model) < 2 or len(model) > 50
                             or not re.search(r'[A-Za-z0-9]', model)
                             or model.upper() in ("NA","N/A","-","CUSTOM","TBD")): continue
@@ -505,17 +641,52 @@ def _extract_excel(path):
             _, pcs, _ = _find_cols([str(c or '') for c in rows[hi]])
             if pcs: parts.extend(_rows_to_parts(rows[hi:])); break
         else:
+            # No recognisable header — infer columns from the cell CONTENT
+            # (works with any column order, with or without a header row).
+            inferred = _rows_to_parts(rows)
+            if inferred:
+                parts.extend(inferred)
+                continue
             for row in rows:
                 text = " ".join(str(c or '') for c in row)
                 if _is_cyr(text): continue
                 for pat, can in _MFR_PAT:
                     m = pat.search(text)
                     if not m: continue
-                    model, desc = _split_model_desc(text[m.end():])
+                    model, desc = _model_desc_around_mfr(text, m)
                     if model and 2 <= len(model) <= 50:
                         parts.append({"manufacturer": can, "part_number": model, "description": desc})
                     break
     wb.close(); return _dedup(parts)
+
+# ── Word (.docx) ──────────────────────────────────────────────────────────────
+def _extract_docx(path):
+    """BOM extraction from Word documents: tables first (any column order —
+    header names when recognised, content inference otherwise), then a
+    known-manufacturer scan over plain paragraphs."""
+    try:
+        import docx  # python-docx
+    except ImportError:
+        raise RuntimeError(
+            "Reading Word files needs the 'python-docx' package — "
+            "run:  pip install python-docx")
+    doc = docx.Document(str(path))
+    parts = []
+    for tbl in doc.tables:
+        rows = [[cell.text for cell in row.cells] for row in tbl.rows]
+        parts.extend(_rows_to_parts(rows))
+    if not parts:
+        for para in doc.paragraphs:
+            line = re.sub(r'\s+', ' ', para.text).strip()
+            if not line or _is_cyr(line): continue
+            for pat, can in _MFR_PAT:
+                m = pat.search(line)
+                if not m: continue
+                model, desc = _model_desc_around_mfr(line, m)
+                if model and 2 <= len(model) <= 50:
+                    parts.append({"manufacturer": can, "part_number": model, "description": desc})
+                break
+    return _dedup(parts)
 
 # ── Markdown ──────────────────────────────────────────────────────────────────
 def _extract_markdown(path):
@@ -541,7 +712,7 @@ def _extract_markdown(path):
             for pat, can in _MFR_PAT:
                 m = pat.search(line)
                 if not m: continue
-                model, desc = _split_model_desc(line[m.end():])
+                model, desc = _model_desc_around_mfr(line, m)
                 if model and 2 <= len(model) <= 50: parts.append({"manufacturer": can, "part_number": model, "description": desc})
                 break
     return _dedup(parts)
@@ -552,6 +723,10 @@ def extract_parts_from_bom(bom_path):
     print(f"\n  Reading BOM: {path.name}")
     if ext == ".pdf":               return _extract_pdf(path)
     elif ext in (".xlsx", ".xls"):  return _extract_excel(path)
+    elif ext == ".docx":            return _extract_docx(path)
+    elif ext == ".doc":
+        raise RuntimeError("Legacy .doc files aren't supported — save the "
+                           "document as .docx (or PDF) in Word and try again.")
     elif ext in (".md", ".markdown", ".txt"): return _extract_markdown(path)
     else:
         print(f"  Unknown extension '{ext}', trying PDF then Excel …")
@@ -3402,6 +3577,16 @@ def _catalog_fallback(bom_idx, mfr, model, folder, desc, label, max_dl,
 
 
 def _download_part(bom_idx, mfr, model, folder, max_dl, session, desc="", force=False):
+    """Wrapper that tags this worker thread with the part it handles, so the
+    GUI's per-part skip can abort just this part via _is_cancelled()."""
+    _current_part_tl.idx = bom_idx
+    try:
+        return _download_part_impl(bom_idx, mfr, model, folder, max_dl,
+                                   session, desc, force)
+    finally:
+        _current_part_tl.idx = None
+
+def _download_part_impl(bom_idx, mfr, model, folder, max_dl, session, desc="", force=False):
     """Returns {"saved":[Path,...], "candidates":[{url,title,referer},...]}
     Every saved file is content-verified (when VERIFY_CONTENT is on).
     Speed-bounded two-phase strategy:

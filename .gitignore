@@ -11,5 +11,6 @@ dist/
 # Misc
 *.rar
 *.spec
+!BomDownloader.spec
 pyproject.toml
 installer.iss

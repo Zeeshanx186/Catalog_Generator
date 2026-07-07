@@ -18,7 +18,7 @@ import subprocess
 import tempfile
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait as futures_wait
 from pathlib import Path
 
 import requests
@@ -88,6 +88,16 @@ class API:
         self._research_cache: dict[int, dict] = {}        # idx -> {url: candidate}
         self._output_folder: str = _DEFAULTS["output_folder"]
 
+        # Per-part skip: idxs the user ✕-ed on the download grid. The engine
+        # consults this via the skip-check below at every cancellation
+        # checkpoint, so ONE part can be aborted without touching the rest.
+        # NOTE: always mutate with .add/.discard/.clear — never rebind — the
+        # lambda captures this exact set object.
+        self._skipped: set[int] = set()
+        self._extra_futs: list = []       # futures for re-queued (un-skipped) parts
+        self._run_ctx: dict | None = None # folder/max_dl/tracked-fn of the live run
+        bd.set_skip_check(lambda i: i in self._skipped)
+
         self._progress: dict = {"status": "idle"}
 
     # ── File I/O ──────────────────────────────────────────────────────────────
@@ -96,7 +106,7 @@ class API:
         result = self.window.create_file_dialog(
             webview.OPEN_DIALOG,
             file_types=(
-                "BOM Files (*.pdf;*.xlsx;*.xls;*.md;*.txt)",
+                "BOM Files (*.pdf;*.xlsx;*.xls;*.docx;*.md;*.txt)",
                 "All Files (*.*)",
             ),
         )
@@ -179,6 +189,10 @@ class API:
 
         self._output_folder = options.get("output_folder", _DEFAULTS["output_folder"])
 
+        self._skipped.clear()
+        self._extra_futs = []
+        self._run_ctx = None
+
         with self._log_lock:
             self._log.clear()
         with self._lock:
@@ -232,11 +246,23 @@ class API:
                 return
             with self._lock:
                 if t == "part_start":
+                    if ev["idx"] in self._skipped:
+                        return          # user skipped it — don't flip to searching
                     for p in self._progress["parts"]:
                         if p["idx"] == ev["idx"]:
                             p["status"] = "searching"
                             break
                 elif t == "part_done":
+                    if ev["idx"] in self._skipped:
+                        # Skipped mid-flight: skip_part() already set the status
+                        # and counted it as done — just make sure it stays that
+                        # way and discard whatever the aborted search returned.
+                        for p in self._progress["parts"]:
+                            if p["idx"] == ev["idx"]:
+                                p["status"] = "skipped"
+                                p["files"]  = []
+                                break
+                        return
                     st = ev.get("status", "not_found")
                     for p in self._progress["parts"]:
                         if p["idx"] == ev["idx"]:
@@ -256,6 +282,10 @@ class API:
         def _tracked_download(*args):
             """Wrap _download_part so we can count live worker threads —
             _settle_old_job() waits on this count before re-arming anything."""
+            if args[0] in self._skipped:
+                # Skipped while still queued: skip_part() already set the
+                # status and counters — don't search, don't emit anything.
+                return {"saved": [], "candidates": []}
             with self._lock:
                 self._active_workers += 1
             try:
@@ -263,6 +293,11 @@ class API:
             finally:
                 with self._lock:
                     self._active_workers -= 1
+
+        # Kept for requeue_part(): re-queued parts submit through the same
+        # tracked wrapper with the same folder/quota as the main pass.
+        self._run_ctx = {"folder": folder, "max_dl": max_dl,
+                         "tracked": _tracked_download}
 
         # Use a manually managed executor so we can shutdown(wait=False) on cancel,
         # which lets in-flight network calls die naturally without blocking the UI.
@@ -295,8 +330,29 @@ class API:
                 idx = fut_map[fut]
                 try:
                     part_results[idx] = fut.result()
-                except Exception:
+                except Exception as e:
+                    # A crashed worker never emits part_done — surface the error
+                    # and close the part out so its card doesn't sit on
+                    # "searching" forever and the done-counter still completes.
                     part_results[idx] = {"saved": [], "candidates": []}
+                    with self._log_lock:
+                        self._log.append(f"    [Error] part #{idx:03d} failed: {e!r}")
+                    with self._lock:
+                        for p in self._progress["parts"]:
+                            if p["idx"] == idx and p["status"] in ("pending", "searching"):
+                                p["status"] = "not_found"
+                                self._progress["done"] += 1
+                                self._progress["not_found"] += 1
+                                break
+
+            # Wait for any parts the user skipped and then re-queued — their
+            # futures aren't in fut_map, so as_completed() above ignores them.
+            while not self._cancel_ev.is_set():
+                with self._lock:
+                    pending = [f for f in self._extra_futs if not f.done()]
+                if not pending:
+                    break
+                futures_wait(pending, timeout=0.5)
 
         except Exception as e:
             with self._log_lock:
@@ -360,12 +416,16 @@ class API:
             self._progress["status"] = "merging"
 
         final_files = self._collect_files(folder, len(parts))
+        with self._lock:
+            skipped_set = {p["idx"] for p in self._progress["parts"]
+                           if p.get("status") == "skipped"}
+        final_files = {i: f for i, f in final_files.items() if i not in skipped_set}
         output = str(folder / "BOM_Manuals_Merged.pdf")
         bd.merge_pdfs(
             bom_stem="bom_manuals",
             parts=parts,
             part_files=final_files,
-            skipped=set(),
+            skipped=skipped_set,
             output_path=output,
             custom_logo_path=options.get("custom_logo_path", ""),
         )
@@ -485,6 +545,68 @@ class API:
                 self._session.close()
             except Exception:
                 pass
+        return {"ok": True}
+
+    # ── Per-part skip / re-queue while the job is running ─────────────────────
+
+    def skip_part(self, idx: int) -> dict:
+        """Skip ONE part while the job is running. A pending part is never
+        searched; a part currently searching aborts at its next checkpoint."""
+        idx = int(idx)
+        with self._lock:
+            if self._progress.get("status") != "running":
+                return {"ok": False, "error": "No active download job."}
+            part = self._part_by_idx(idx)
+            if not part:
+                return {"ok": False, "error": "Unknown part index."}
+            if part["status"] not in ("pending", "searching"):
+                return {"ok": False, "error": "This part has already finished."}
+            self._skipped.add(idx)
+            part["status"] = "skipped"
+            part["files"]  = []
+            self._progress["done"] += 1
+            mfr, model = part.get("manufacturer", ""), part.get("part_number", "")
+        bd.tprint(f"    [Skip] #{idx:03d} {mfr} {model} — skipped by user")
+        return {"ok": True}
+
+    def requeue_part(self, idx: int) -> dict:
+        """Put a skipped part back into the running job's queue ('Search' on
+        a skipped card). Only works while the job is still running — after
+        that, the Results page's 'Search again' takes over."""
+        idx = int(idx)
+        with self._lock:
+            part = self._part_by_idx(idx)
+            if not part:
+                return {"ok": False, "error": "Unknown part index."}
+            if part["status"] != "skipped":
+                return {"ok": False, "error": "Only skipped parts can be re-queued."}
+            if (self._progress.get("status") != "running"
+                    or self._executor is None or self._run_ctx is None):
+                return {"ok": False, "error":
+                        "The job has finished — use 'Search again' on the Results page."}
+            self._skipped.discard(idx)
+            part["status"] = "pending"
+            self._progress["done"] = max(0, self._progress["done"] - 1)
+            mfr   = part.get("manufacturer", "")
+            model = part.get("part_number", "")
+            desc  = part.get("description", "")
+            ctx   = self._run_ctx
+        try:
+            fut = self._executor.submit(ctx["tracked"], idx, mfr, model,
+                                        ctx["folder"], ctx["max_dl"],
+                                        self._session, desc)
+        except RuntimeError:
+            # Executor already shut down — the run ended between the check
+            # above and the submit. Restore the skipped state.
+            with self._lock:
+                self._skipped.add(idx)
+                part["status"] = "skipped"
+                self._progress["done"] += 1
+            return {"ok": False, "error":
+                    "The job just finished — use 'Search again' on the Results page."}
+        with self._lock:
+            self._extra_futs.append(fut)
+        bd.tprint(f"    [Re-queue] #{idx:03d} {mfr} {model} — searching again")
         return {"ok": True}
 
     # ── File access ───────────────────────────────────────────────────────────
@@ -623,6 +745,9 @@ class API:
         self._cancel_ev = threading.Event()
         bd.set_cancel_event(self._cancel_ev)
         self._executor = None
+        # Run-time skips must not leak into post-run research / auto-pick —
+        # a lingering idx would make _download_part abort instantly.
+        self._skipped.clear()
         return True
 
     def _part_by_idx(self, idx: int):
@@ -807,6 +932,111 @@ class API:
         warn = dtype in bd._REJECT_TYPES or dtype == "unknown"
         return {"ok": True, "file": str(dest), "doc_type": dtype,
                 "note": vnote, "warning": warn}
+
+    def upload_own_pdf(self, idx: int) -> dict:
+        """Let the user pick a PDF from their own disk for ONE part — copies it
+        into the output folder under the canonical name, verifies it, and marks
+        the part as found. Mirrors keep_candidate with a local file as source."""
+        part = self._part_by_idx(idx)
+        if not part:
+            return {"ok": False, "error": "Unknown part index."}
+        result = self.window.create_file_dialog(
+            webview.OPEN_DIALOG,
+            file_types=(
+                "PDF Files (*.pdf)",
+                "All Files (*.*)",
+            ),
+        )
+        if not result:
+            return {"ok": False, "cancelled": True}
+        src = Path(result[0] if isinstance(result, (list, tuple)) else result)
+        if not src.is_file():
+            return {"ok": False, "error": "File not found."}
+        try:
+            with open(src, "rb") as f:
+                if f.read(4) != b"%PDF":
+                    return {"ok": False, "error": "That file is not a valid PDF."}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+        folder = Path(self._progress.get("output_folder") or
+                      _load_cfg()["output_folder"])
+        folder.mkdir(parents=True, exist_ok=True)
+        mfr, model = part.get("manufacturer", ""), part.get("part_number", "")
+        dest = bd.candidate_dest(folder, int(idx), mfr, model, src.stem)
+        try:
+            shutil.copy2(src, dest)
+        except Exception as e:
+            return {"ok": False, "error": f"Could not copy the file: {e}"}
+
+        ok, note = bd._ensure_unprotected(dest)
+        if not ok:
+            try: dest.unlink()
+            except Exception: pass
+            return {"ok": False, "error": f"Rejected: {note}"}
+
+        dtype, _q, vnote = bd._verify_pdf(
+            dest, model, mfr, None,
+            src_url=str(src), src_title=src.stem,
+            desc=part.get("description", ""))
+        if dtype == "unreadable":
+            try: dest.unlink()
+            except Exception: pass
+            return {"ok": False, "error": "The file is corrupt/unreadable."}
+
+        with self._lock:
+            was_found = part["status"] == "found"
+            part["status"] = "found"
+            part["files"]  = [str(dest)]
+            if not was_found:
+                self._progress["found"]     = self._progress.get("found", 0) + 1
+                self._progress["not_found"] = max(0, self._progress.get("not_found", 0) - 1)
+        warn = dtype in bd._REJECT_TYPES or dtype == "unknown"
+        return {"ok": True, "file": str(dest), "doc_type": dtype,
+                "note": vnote, "warning": warn}
+
+    def add_part(self, after_idx: int, manufacturer: str = "",
+                 part_number: str = "", description: str = "") -> dict:
+        """Insert a new part into the finished results, right after the row
+        whose idx == after_idx (-1 appends at the end, 0 inserts at the top).
+        Every part is renumbered so the merged PDF follows the new order."""
+        if not (part_number or "").strip():
+            return {"ok": False, "error": "Part number is required."}
+        with self._lock:
+            if self._progress.get("status") not in ("done", "cancelled"):
+                return {"ok": False, "error": "Available after the job finishes."}
+            parts = self._progress.get("parts", [])
+            after_idx = int(after_idx)
+            if after_idx < 0:
+                pos = len(parts)
+            elif after_idx == 0:
+                pos = 0
+            else:
+                pos = next((i + 1 for i, p in enumerate(parts)
+                            if p["idx"] == after_idx), len(parts))
+            new_part = {
+                "idx":          0,          # assigned in the renumber below
+                "manufacturer": (manufacturer or "").strip(),
+                "part_number":  part_number.strip(),
+                "description":  (description or "").strip(),
+                "status":       "not_found",
+                "files":        [],
+            }
+            parts.insert(pos, new_part)
+            # Renumber sequentially; remap the research cache to the new idxs
+            old_cache, new_cache = self._research_cache, {}
+            for i, p in enumerate(parts):
+                if p is not new_part and p["idx"] in old_cache:
+                    new_cache[i + 1] = old_cache[p["idx"]]
+                p["idx"] = i + 1
+            self._research_cache = new_cache
+            self._progress["total"]     = len(parts)
+            self._progress["not_found"] = self._progress.get("not_found", 0) + 1
+            snap = copy.deepcopy(self._progress)
+        return {"ok": True, "new_idx": pos + 1, "parts": snap["parts"],
+                "found":     snap.get("found", 0),
+                "not_found": snap.get("not_found", 0),
+                "total":     snap.get("total", 0)}
 
     def auto_pick(self, idx: int) -> dict:
         """Let the verified download pipeline pick the best document for ONE

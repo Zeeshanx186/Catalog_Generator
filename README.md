@@ -200,14 +200,26 @@ BomDownloader/
 
 ---
 
-## 📦 Build a Standalone Executable
+## 📦 Build a Standalone / Portable Executable
 
 ```bash
-pip install pyinstaller
-pyinstaller --onefile --windowed --name BomDownloader main.py
+build.bat
 ```
 
-The app uses `sys._MEIPASS` to locate bundled assets automatically when frozen — no extra config needed.
+That's it — it installs dependencies, runs PyInstaller with `BomDownloader.spec`, and produces:
+
+| Output | Use |
+|--------|-----|
+| `dist\BomDownloader\` | Portable folder — copy to any PC and run `BomDownloader.exe` |
+| `dist\BomDownloader-Portable.zip` | Same thing, zipped for easy transfer |
+
+> ⚠️ **Always build via the spec file** (`pyinstaller BomDownloader.spec`).
+> A bare `pyinstaller main.py` does **not** bundle the `ui\` folder or the SSL
+> runtime hook, producing an exe that exits silently on launch.
+
+**Target machine requirements:** Windows 10/11 with the WebView2 runtime
+(preinstalled on Windows 11 and on any PC that has Microsoft Edge — i.e.
+virtually all of them). No Python needed.
 
 ---
 
