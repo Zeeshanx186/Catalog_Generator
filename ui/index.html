@@ -2761,7 +2761,7 @@
           </button>
         </span>
       </div>
-      <div class="card-pn">${esc(p.part_number)}</div>
+      <div class="card-pn">${esc(p.part_number)}${p.duplicate_of ? ' ' + dupBadge(p.duplicate_of) : ''}</div>
       <div class="card-mfr">${esc(p.manufacturer || '—')}</div>
       ${p.description ? `<div class="card-desc">${esc(p.description)}</div>` : ''}`;
         grid.appendChild(card);
@@ -2788,6 +2788,8 @@
         card.className = `part-card ${p.status}`;
         const labels = { pending: 'Pending', searching: 'Searching…', found: 'Found', not_found: 'Not found', skipped: 'Skipped' };
         card.querySelector('.card-status-txt').textContent = labels[p.status] || p.status;
+        if (p.duplicate_of && p.status === 'found')
+          card.querySelector('.card-status-txt').textContent = 'Found (duplicate)';
 
         // Instant access: show Open button as soon as a file is downloaded — no waiting
         if (p.status === 'found' && p.files && p.files.length > 0 && !card.querySelector('.card-open-btn')) {
@@ -3138,7 +3140,7 @@
       <td>${found ? `<input type="checkbox" class="res-check" value="${p.idx}" onchange="updateMergeSelBtn()">` : ''}</td>
       <td class="idx">${String(p.idx).padStart(3, '0')}</td>
       <td class="mfr">${esc(p.manufacturer || '—')}</td>
-      <td class="pn">${esc(p.part_number)}</td>
+      <td class="pn">${esc(p.part_number)}${p.duplicate_of ? ' ' + dupBadge(p.duplicate_of) : ''}</td>
       <td class="desc" style="font-size:12px;color:var(--muted)">${esc(p.description || '')}</td>
       <td>${badge}</td>
       <td style="white-space:nowrap">${actionCell}</td>`;
