@@ -4129,7 +4129,8 @@ def _draw_breaker_page(c, chapter_no, mfr, part, desc, page_x, page_y, logo_path
 _COLS = [76.1, 120.2, 293.2, 362.5, 441.2, 519.9]          # column x-boundaries
 _COL_CENTERS = [(_COLS[i] + _COLS[i + 1]) / 2 for i in range(5)]
 _HDR_LABELS = ["Chapter #", "Item Description", "Manufacturer", "Part No.", "Attachement"]
-_ROW_H = 7.05
+_ROW_H = 8.2       # tall enough for 5.8pt text plus clearance on both sides
+_TXT_PAD = 1.4     # gap between glyph ink and the row rules (top and bottom)
 _BODY_TOP = 116.4
 _BODY_BOTTOM_LIMIT = 806.0
 
@@ -4194,21 +4195,26 @@ def _toc_draw_page(c, entries, page_x, page_y, logo_path):
         # text
         c.setFillColorRGB(*_BLACK)
         c.setFont("Helvetica", 5.8)
+        # Vertical placement: _yb's 'bottom' argument is the glyph descent
+        # bottom, and Helvetica ink is ~5.38pt tall at 5.8pt — so putting the
+        # bottom at (centre + 2.7) centres the ink, and (line bottom - _TXT_PAD)
+        # keeps the first/last lines clear of the row rules instead of the old
+        # offsets that shaved the cap height off against the top border.
         vcen = row_top + rh / 2.0
-        c.drawCentredString(_COL_CENTERS[0], _yb(vcen + 2.0, 5.8), str(row["chapter_no"]))
+        c.drawCentredString(_COL_CENTERS[0], _yb(vcen + 2.7, 5.8), str(row["chapter_no"]))
         ly = row_top + _ROW_H
         for ln in dlines:
-            c.drawString(_COLS[1] + 1.3, _yb(ly - 1.7, 5.8), ln)
+            c.drawString(_COLS[1] + 1.3, _yb(ly - _TXT_PAD, 5.8), ln)
             ly += _ROW_H
-        c.drawCentredString(_COL_CENTERS[2], _yb(vcen + 2.0, 5.8), (row["mfr"] or "").upper())
-        c.drawCentredString(_COL_CENTERS[3], _yb(vcen + 2.0, 5.8), row["part"] or "")
+        c.drawCentredString(_COL_CENTERS[2], _yb(vcen + 2.7, 5.8), (row["mfr"] or "").upper())
+        c.drawCentredString(_COL_CENTERS[3], _yb(vcen + 2.7, 5.8), row["part"] or "")
         # "Go to Datasheet" (blue, centered, underlined) + clickable rect
         c.setFillColorRGB(*_BLUE)
         link = "Go to Datasheet"
-        c.drawCentredString(_COL_CENTERS[4], _yb(vcen + 2.0, 5.8), link)
+        c.drawCentredString(_COL_CENTERS[4], _yb(vcen + 2.7, 5.8), link)
         lw_ = stringWidth(link, "Helvetica", 5.8)
         ux0 = _COL_CENTERS[4] - lw_ / 2.0
-        _rect_td(c, ux0, vcen + 3.0, ux0 + lw_, vcen + 3.4, fill_rgb=_BLUE)
+        _rect_td(c, ux0, vcen + 3.7, ux0 + lw_, vcen + 4.1, fill_rgb=_BLUE)
         rect = (ux0 - 1.0, _A4_H - (vcen + 4.5), ux0 + lw_ + 1.0, _A4_H - (vcen - 4.0))
         links.append((row["chapter_no"], rect))
     # top border of the table on this page
