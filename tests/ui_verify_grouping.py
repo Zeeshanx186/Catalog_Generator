@@ -40,6 +40,23 @@ def run():
     ev("toggleGroupByMfr(); deletePart(0); 'edited'")
     out["btn_after_edit"] = ev("document.getElementById('btn-group-mfr-txt').textContent")
     out["snapshot_after_edit"] = ev("S.groupSnapshot === null")
+    # loading new parts invalidates a stale snapshot
+    out["reload_check"] = ev("""
+      S.parts = [
+        {manufacturer:'X', part_number:'P1', description:''},
+        {manufacturer:'Y', part_number:'P2', description:''},
+        {manufacturer:'X', part_number:'P3', description:''}
+      ];
+      renderPartsTable();
+      toggleGroupByMfr();                       // grouped, snapshot set
+      // simulate what a file load must now do:
+      S.parts = [{manufacturer:'Z', part_number:'N1', description:''}];
+      invalidateGroupSnapshot();
+      renderPartsTable();
+      ({snap: S.groupSnapshot === null,
+        btn: document.getElementById('btn-group-mfr-txt').textContent,
+        parts: S.parts.map(p => p.part_number)})
+    """)
     print("RESULTS:" + json.dumps(out))
     window.destroy()
 

@@ -2505,6 +2505,7 @@
           return;
         }
         S.parts = r.parts || [];
+        invalidateGroupSnapshot();
         S.filename = r.filename || file.name;
 
         const infoId = type === 'bom' ? 'bom-file-info' : 'parts-file-info';
