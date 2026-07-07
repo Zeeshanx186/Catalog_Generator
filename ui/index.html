@@ -2032,6 +2032,14 @@
             </svg>
             Add part
           </button>
+          <button class="btn btn-secondary btn-sm" id="btn-group-mfr" onclick="toggleGroupByMfr()"
+            title="Bundle same-manufacturer parts together (in order of first appearance)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="14" y2="12"/>
+              <line x1="4" y1="18" x2="20" y2="18"/>
+            </svg>
+            <span id="btn-group-mfr-txt">Group by manufacturer</span>
+          </button>
           <div style="flex:1"></div>
           <button class="btn btn-primary btn-lg" id="btn-start" onclick="startDownload()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -2404,6 +2412,7 @@
       pollTimer: null,
       outputPath: null,
       outputFolder: null,
+      groupSnapshot: null,   // pre-grouping order (array of part refs) or null
     };
 
     // ── Init ─────────────────────────────────────────────────────────────────────
@@ -2577,7 +2586,41 @@
         `${n} duplicate part${n !== 1 ? 's' : ''} found — kept duplicates reuse the document of their first occurrence.`;
     }
 
+    // ── Group by manufacturer (optional, reversible) ───────────────────────────────
+    function toggleGroupByMfr() {
+      if (S.groupSnapshot) {                    // restore original BOM order
+        S.parts = S.groupSnapshot;
+        S.groupSnapshot = null;
+      } else {                                  // group, keeping a snapshot
+        S.groupSnapshot = S.parts.slice();
+        const firstSeen = new Map();
+        S.parts.forEach((p, i) => {
+          const k = (p.manufacturer || '').trim().toUpperCase();
+          if (!firstSeen.has(k)) firstSeen.set(k, i);
+        });
+        S.parts = S.parts
+          .map((p, i) => ({ p, i, g: firstSeen.get((p.manufacturer || '').trim().toUpperCase()) }))
+          .sort((a, b) => a.g - b.g || a.i - b.i)
+          .map(x => x.p);
+      }
+      renderPartsTable();
+      updateGroupBtn();
+    }
+
+    function updateGroupBtn() {
+      const t = document.getElementById('btn-group-mfr-txt');
+      if (t) t.textContent = S.groupSnapshot ? 'Restore BOM order' : 'Group by manufacturer';
+    }
+
+    // Structural edits make the saved order stale — drop the undo, keep the
+    // current order. Cell TEXT edits (updatePart) deliberately do NOT do this.
+    function invalidateGroupSnapshot() {
+      S.groupSnapshot = null;
+      updateGroupBtn();
+    }
+
     function discardAllDuplicates() {
+      invalidateGroupSnapshot();
       const dups = computeDuplicates(S.parts);
       S.parts = S.parts.filter((_, i) => dups[i] === null);
       renderPartsTable();
@@ -2635,17 +2678,20 @@
     function movePart(i, d) {
       const j = i + d;
       if (j < 0 || j >= S.parts.length) return;
+      invalidateGroupSnapshot();
       [S.parts[i], S.parts[j]] = [S.parts[j], S.parts[i]];
       renderPartsTable();   // numbering is derived from position, so it renumbers itself
     }
 
     function deletePart(i) {
+      invalidateGroupSnapshot();
       S.parts.splice(i, 1);
       renderPartsTable();
       document.getElementById('parts-count').textContent = S.parts.length;
     }
 
     function addPartRow() {
+      invalidateGroupSnapshot();
       S.parts.push({ manufacturer: '', part_number: '', description: '' });
       renderPartsTable();
       document.getElementById('parts-count').textContent = S.parts.length;
@@ -2969,6 +3015,7 @@
     }
 
     function startOver() {
+      invalidateGroupSnapshot();
       S.parts = []; S.filename = ''; S.outputPath = null; S.outputFolder = null; _lastLogLen = 0;
       document.getElementById('bom-file-info').classList.remove('visible');
       document.getElementById('parts-file-info').classList.remove('visible');
