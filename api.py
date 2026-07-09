@@ -300,6 +300,7 @@ class API:
 
         bd.set_progress_callback(_on_event)
         bd.set_cancel_event(self._cancel_ev)
+        bd.reset_run_stats()             # per-run outcome stats for the end summary
         self._session = _make_session()
 
         def _tracked_download(*args):
@@ -498,6 +499,23 @@ class API:
                     if p["status"] in ("pending", "searching"):
                         p["status"] = "not_found"
             return
+
+        # ── End-of-run summary ────────────────────────────────────────────────
+        # _retry_misses left the progress callback as None; re-install a log-only
+        # forwarder so render_run_summary's lines reach the GUI panel.
+        def _log_forward(ev: dict) -> None:
+            if ev.get("type") == "log":
+                with self._log_lock:
+                    self._log.append(ev.get("message", ""))
+        bd.set_progress_callback(_log_forward)
+        try:
+            with self._lock:
+                total     = self._progress["total"]
+                found     = self._progress["found"]
+                not_found = self._progress["not_found"]
+            bd.render_run_summary(total=total, found=found, not_found=not_found)
+        finally:
+            bd.set_progress_callback(None)
 
         # ── Normal completion ─────────────────────────────────────────────────
         if no_merge:

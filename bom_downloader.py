@@ -232,6 +232,73 @@ _domain_times = defaultdict(float)
 MIN_DOMAIN_GAP = 1.5
 
 # =============================================================================
+#  PER-RUN OUTCOME STATS  -  feeds the end-of-run summary in the log panel
+# =============================================================================
+# Every part passes through _download_part_impl (main pass AND the sequential
+# retry pass), which records one outcome row here. render_run_summary() then
+# rolls them up: how many found, which SOURCE produced each, and every miss
+# with the reason it failed. reset_run_stats() is called once when a batch
+# starts so the summary reflects only that run.
+_RUN_STATS      = {}                    # idx -> outcome dict
+_RUN_STATS_LOCK = threading.Lock()
+_RUN_T0         = [None]
+
+def reset_run_stats():
+    with _RUN_STATS_LOCK:
+        _RUN_STATS.clear()
+    _RUN_T0[0] = time.monotonic()
+
+def _record_part_stat(idx, label, status, source, doc_types, downloads, elapsed, reason):
+    with _RUN_STATS_LOCK:
+        _RUN_STATS[idx] = {"label": label, "status": status, "source": source,
+                           "doc_types": doc_types, "downloads": downloads,
+                           "elapsed": elapsed, "reason": reason}
+
+def _fmt_dur(sec):
+    sec = int(sec or 0)
+    return f"{sec}s" if sec < 60 else f"{sec // 60}m{sec % 60:02d}s"
+
+def _backend_status_note():
+    """One-line note on which backends are currently unavailable — used to
+    explain why a part came back empty."""
+    notes = []
+    left = _DDG_PAUSED_UNTIL[0] - time.monotonic()
+    if left > 0:
+        notes.append(f"DDG paused {int(left)}s")
+    tripped = _cb.tripped_summary()
+    if tripped:
+        notes.append("disabled: " + ", ".join(sorted(tripped)))
+    return "; ".join(notes)
+
+def render_run_summary(total, found, not_found):
+    """Emit a compact end-of-run roll-up to the log panel: counts, which source
+    produced each found doc, and every part that failed with its reason."""
+    with _RUN_STATS_LOCK:
+        stats = dict(_RUN_STATS)
+    elapsed = (time.monotonic() - _RUN_T0[0]) if _RUN_T0[0] else 0
+    bar = "-" * 60
+    tprint("")
+    tprint(f"  {bar}")
+    tprint(f"  {_bold('RUN SUMMARY')}  {total} part(s) · {_fmt_dur(elapsed)}")
+    tprint(f"  {_green(f'{found} found')} · {_red(f'{not_found} not found')}")
+    tally = defaultdict(int)
+    for s in stats.values():
+        if s["status"] == "found":
+            tally[s["source"] or "?"] += 1
+    if tally:
+        line = " · ".join(f"{src} {n}" for src, n in
+                          sorted(tally.items(), key=lambda kv: kv[1], reverse=True))
+        tprint(f"  Sources:  {line}")
+    misses = sorted((i, s) for i, s in stats.items() if s["status"] != "found")
+    if misses:
+        tprint(f"  {_red('Not found:')}")
+        for i, s in misses:
+            reason = s.get("reason") or "no document"
+            tprint(f"    {_dim(f'#{i:03d}')} {s['label'][:28]:<28}  {_yellow(reason)}")
+    tprint(f"  {bar}")
+    tprint("")
+
+# =============================================================================
 #  PROGRESS / CANCELLATION HOOKS  (used by the GUI; no-ops in CLI mode)
 # =============================================================================
 
@@ -284,6 +351,7 @@ def _is_cancelled() -> bool:
 _search_deadline = [None]
 _part_deadline_tl = threading.local()   # per-worker-thread part-search deadline
 _ddg_part_calls_tl = threading.local()  # per-part count of REAL DDG attempts
+_backend_hit_tl = threading.local()     # per-part: search backends already logged
 
 DDG_MAX_PER_PART = 1   # hard cap on DDG calls per part. Each real call costs
                        # ~7s and is serialised globally — a part that issues 2
@@ -311,6 +379,14 @@ def _part_deadline_passed() -> bool:
 def _should_stop_search() -> bool:
     return _is_cancelled() or _deadline_passed() or _part_deadline_passed()
 
+_ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
+def _strip_ansi(s):
+    """Remove ANSI colour escapes. The console keeps its colours, but the GUI
+    log panel is plain HTML text — sending it '\\x1b[92m…\\x1b[0m' would print the
+    raw codes. _COLOR is True whenever stdout is a real TTY (e.g. launched with
+    `python main.py` from a terminal), so the GUI MUST strip regardless."""
+    return _ANSI_RE.sub('', s)
+
 def tprint(*a, **k):
     # Console output is cosmetic — it must NEVER kill a worker thread. In the
     # frozen windowed build (and any piped run) stdout is cp1252-encoded, so
@@ -320,7 +396,7 @@ def tprint(*a, **k):
         with _print_lock: print(*a, **k)
     except (UnicodeEncodeError, ValueError, OSError, AttributeError):
         pass
-    _emit("log", message=" ".join(str(x) for x in a))
+    _emit("log", message=_strip_ansi(" ".join(str(x) for x in a)))
 
 def _has(v):
     return bool(v and v.strip() and not v.strip().startswith("#"))
@@ -1710,13 +1786,30 @@ def _ddg(q, n=10, retries=2, force=False, critical=False):
 
 _BACKENDS[-1] = ("DDG", lambda: True, _ddg)   # wire in now that fn is defined
 
+def _log_backend_hit(name, count, q):
+    """Log which search backend produced results — but only the FIRST time each
+    backend fires for the current part, so a big BOM doesn't flood the panel with
+    one line per query. Answers 'which API worked for which item'."""
+    seen = getattr(_backend_hit_tl, "seen", None)
+    if seen is None:
+        seen = set(); _backend_hit_tl.seen = seen
+    if name in seen:
+        return
+    seen.add(name)
+    tprint(f"    [{name}] {_green(f'{count} result(s)')} for: {q[:70]}")
+
 def _search(q, n=10, force=False, critical=False):
     for name, enabled, fn in _BACKENDS:
         if _should_stop_search(): return []
         if not enabled(): continue
         if name != "DDG" and _cb.is_open(name): continue   # DDG never blocked
         r = fn(q, n, force=force, critical=critical) if name == "DDG" else fn(q, n)
-        if r: return r
+        if r:
+            for x in r:
+                if isinstance(x, dict):
+                    x.setdefault("_backend", name)
+            _log_backend_hit(name, len(r), q)
+            return r
     return []
 
 
@@ -2432,7 +2525,8 @@ def _rank_candidates(direct, model, mfr, desc):
     if not good:   # nothing passed threshold — fall back to best 3 (junk already gone)
         good = sorted(scored, key=lambda t: t[2], reverse=True)[:3]
     good.sort(key=lambda t: (t[3], t[2]), reverse=True)   # (own-mfr-domain, score)
-    return [{"url": u, "title": v["title"], "referer": v["referer"]}
+    return [{"url": u, "title": v["title"], "referer": v["referer"],
+             "source": v.get("source")}
             for u, v, _s, _t in good[:10]]
 
 
@@ -2459,11 +2553,20 @@ def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
     direct = {}
     abb_alias = None        # ABB type designation, resolved lazily below
 
-    def _add(hits):
+    def _add(hits, source="?"):
         for h in hits:
-            direct.setdefault(h["url"], {"title": h["title"], "referer": h.get("referer")})
+            direct.setdefault(h["url"], {"title": h["title"],
+                                         "referer": h.get("referer"),
+                                         "source": h.get("source", source)})
         if hits and _is_abb(mfr):
             _abb_register_alias(model, mfr, direct)
+
+    def _add_hit(url, title, source, referer=None, snippet=None):
+        """Insert a single search-engine hit, remembering which backend found it."""
+        v = {"title": title, "referer": referer, "source": source}
+        if snippet is not None:
+            v["snippet"] = snippet
+        direct.setdefault(url, v)
 
     # Per-part wall-clock budget. Only applies when no interactive (GUI
     # re-search) deadline is active — the GUI sets its own, usually longer one.
@@ -2474,6 +2577,7 @@ def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
     # the budget even while a part is WAITING IN LINE for the global DDG lock.
     _part_deadline_tl.t = part_deadline
     _ddg_part_calls_tl.n = 0
+    _backend_hit_tl.seen = set()          # reset per-part 'which backend' logging
 
     def _out_of_budget():
         """True when the interactive or per-part search-time budget is spent."""
@@ -2486,7 +2590,7 @@ def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
 
     # ── Tier 1: DirectProbe (hardcoded CDN URL patterns) ─────────────────────
     hits = _direct_probe(model, mfr, session)
-    _add(hits)
+    _add(hits, "DirectProbe")
     if hits: tprint(f"    [DirectProbe] {len(hits)} hit(s) for {pf}")
     if _is_cancelled(): return []
     if _out_of_budget(): return _rank_candidates(direct, model, mfr, desc)
@@ -2495,7 +2599,7 @@ def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
     # Scrapes the manufacturer's own product/documentation page directly.
     # Far more accurate than any search engine for known manufacturers.
     portal_hits = _mfr_portal_search(model, mfr, session, force=force)
-    _add(portal_hits)
+    _add(portal_hits, "MfrPortal")
     if _is_cancelled(): return []
 
     # If the manufacturer's own site already gave us usable (non-junk) docs,
@@ -2522,7 +2626,7 @@ def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
         tprint(f"    [{'MfrPortal' if own else 'DirectProbe'}] {pf}: "
                f"{len(trusted)} {'official' if own else 'verified mirror'} doc(s) "
                f"— skipping search engines")
-        _add(_component_db_docs(model, mfr))
+        _add(_component_db_docs(model, mfr), "Nexar")
         if (not has_official_manual and PREFER_MANUALS and not _is_cancelled()
                 and (_ddg_budget_left() or _any_search_backend_ready())):
             try:
@@ -2530,13 +2634,13 @@ def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
                     url = (r.get("href") or "").strip()
                     title = (r.get("title") or "").strip()
                     if url and _is_pdf_url(url) and _relevant(url, title, model, mfr):
-                        direct.setdefault(url, {"title": title, "referer": None})
+                        _add_hit(url, title, r.get("_backend", "search"))
             except Exception:
                 pass
         return _rank_candidates(direct, model, mfr, desc)
 
     # ── Tier 2: Nexar component database (if key configured) ──────────────────
-    _add(_component_db_docs(model, mfr))
+    _add(_component_db_docs(model, mfr), "Nexar")
     if _is_cancelled(): return []
     if _out_of_budget(): return _rank_candidates(direct, model, mfr, desc)
 
@@ -2578,7 +2682,7 @@ def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
                 url = r.get("href", "").strip(); title = r.get("title", "").strip()
                 if not url: continue
                 if _is_pdf_url(url) and _relevant(url, title, model, mfr):
-                    direct.setdefault(url, {"title": title, "referer": None})
+                    _add_hit(url, title, f"SiteSearch:{doc_site}")
                 elif url not in pages:
                     pages.append(url)
         if pages and not _is_cancelled():
@@ -2587,7 +2691,7 @@ def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
                     {ex.submit(_scrape_page, pg, model, mfr, session): pg
                      for pg in pages[:6]}
                 ):
-                    _add(fut.result())
+                    _add(fut.result(), f"SiteSearch:{doc_site}")
         if direct:
             tprint(f"    [SiteSearch:{doc_site}] {len(direct)} candidate(s)")
             own_site_docs = [u for u in direct if _is_own_mfr_domain(u, mfr) or (doc_site and doc_site in _dom(u))]
@@ -2609,7 +2713,7 @@ def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
                             url = (r.get("href") or "").strip()
                             title = (r.get("title") or "").strip()
                             if url and _is_pdf_url(url) and _relevant(url, title, model, mfr):
-                                direct.setdefault(url, {"title": title, "referer": None})
+                                _add_hit(url, title, r.get("_backend", "search"))
                     except Exception:
                         pass
                 return _rank_candidates(direct, model, mfr, desc)
@@ -2632,7 +2736,7 @@ def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
                 url = r.get("href", "").strip(); title = r.get("title", "").strip()
                 if not url: continue
                 if _is_pdf_url(url) and _relevant(url, title, model, mfr):
-                    direct.setdefault(url, {"title": title, "referer": None})
+                    _add_hit(url, title, r.get("_backend", "search"))
                 elif not _is_pdf_url(url) and url not in gen_pages:
                     gen_pages.append(url)
             if direct:
@@ -2644,8 +2748,8 @@ def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
     # ── Tier 4: Distributor scrapers (no API key required) ────────────────────
     if _is_cancelled(): return []
     if _out_of_budget(): return _rank_candidates(direct, model, mfr, desc)
-    _add(_mouser_scrape(model, mfr, session))
-    _add(_rs_scrape(model, mfr, session))
+    _add(_mouser_scrape(model, mfr, session), "Mouser")
+    _add(_rs_scrape(model, mfr, session), "RS")
     if _is_cancelled(): return []
     if _out_of_budget(): return _rank_candidates(direct, model, mfr, desc)
     tprint(f"    [Search] {pf}: broad web search…")
@@ -2676,7 +2780,7 @@ def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
                     if not url:
                         continue
                     if _is_pdf_url(url) and _relevant(url, f"{title} {body}", model, mfr):
-                        direct.setdefault(url, {"title": title, "snippet": body, "referer": None})
+                        _add_hit(url, title, r.get("_backend", "search"), snippet=body)
                     elif not _is_pdf_url(url) and _relevant(url, f"{title} {body}", model, mfr) \
                             and url not in gen_pages:
                         gen_pages.append(url)
@@ -2712,7 +2816,7 @@ def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
             if not url: continue
             if _is_pdf_url(url):
                 if _relevant(url, f"{title} {body}", model, mfr):
-                    direct.setdefault(url, {"title": title, "snippet": body, "referer": None})
+                    _add_hit(url, title, r.get("_backend", "search"), snippet=body)
             else:
                 mh = mfr and len(mfr) >= 4 and mfr.lower()[:5] in _dom(url)
                 if (_relevant(url, f"{title} {body}", model, mfr) or mh) and url not in gen_pages:
@@ -2723,7 +2827,7 @@ def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
                 {ex.submit(_scrape_page, pg, model, mfr, session): pg
                  for pg in gen_pages[:6]}
             ):
-                _add(fut.result())
+                _add(fut.result(), "WebScrape")
 
     # ── Tier 6: Last-ditch ────────────────────────────────────────────────────
     if _is_cancelled(): return []
@@ -2733,7 +2837,7 @@ def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
         for r in _search(f'{pdf_term} {kw_str} pdf'.strip(), n=8, force=force, critical=True):
             url = r.get("href", "").strip()
             if url and _is_pdf_url(url):
-                direct.setdefault(url, {"title": r.get("title", ""), "referer": None})
+                _add_hit(url, r.get("title", ""), r.get("_backend", "search"))
 
     # ── Tier 7: FAMILY-level fallback (no part number in the query) ──────────
     # Some parts (enclosure systems, configured articles) only have family
@@ -2754,7 +2858,7 @@ def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
                 for r in _search(q, n=8, force=force, critical=True):
                     url = r.get("href", "").strip(); title = r.get("title", "").strip()
                     if url and _is_pdf_url(url) and _relevant(url, title, model, mfr):
-                        direct.setdefault(url, {"title": title, "referer": None})
+                        _add_hit(url, title, r.get("_backend", "search"))
                 if direct:
                     break
         fam_qs = [q for q in (
@@ -2770,16 +2874,14 @@ def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
                 ml2 = mfr.lower()[:6]
                 if _is_pdf_url(url):
                     if ml2 in url.lower() or ml2 in title.lower():
-                        direct.setdefault(url, {"title": f"[family doc] {title}",
-                                                "referer": None})
+                        _add_hit(url, f"[family doc] {title}", "FamilySearch")
                 elif _is_own_mfr_domain(url, mfr) and \
                         any(k in (url + title).lower()
                             for k in ("manual", "guide", "instruction", "imf/",
                                       "handbook", "specification")):
                     # manufacturers often serve PDFs without a .pdf extension
                     # (e.g. rittal.com/imf/…) — magic-byte check happens at download
-                    direct.setdefault(url, {"title": f"[family doc] {title}",
-                                            "referer": None})
+                    _add_hit(url, f"[family doc] {title}", "FamilySearch")
             if direct:
                 tprint(f"    [FamilySearch] {len(direct)} family-level doc(s) for {pf} "
                        f"— pick manually, these are not part-specific")
@@ -3834,6 +3936,28 @@ def _download_part_impl(bom_idx, mfr, model, folder, max_dl, session, desc="", f
             return True
         return False
 
+    def _finish(status, saved, source=None, doc_types=None, reason=None,
+                downloads=0, candidates=None):
+        """Single exit point for the part: record the outcome for the end-of-run
+        summary, print a one-line verdict (which source won / why it failed),
+        emit part_done to the GUI, and return the standard result dict."""
+        elapsed = time.monotonic() - _part_t0
+        _record_part_stat(bom_idx, label, status, source, doc_types,
+                          downloads, elapsed, reason)
+        dur = f"{elapsed:.1f}s" if elapsed < 60 else _fmt_dur(elapsed)
+        if status == "found":
+            via  = f" via {source}" if source and source != "catalog" else ""
+            what = doc_types or "document"
+            tail = f" · {downloads} dl" if downloads else ""
+            tprint(f"    {_green('✔')} #{bom_idx:03d} {label} → "
+                   f"{_green('FOUND')}: {what}{via}{tail} · {dur}")
+        else:
+            tprint(f"    {_red('✘')} #{bom_idx:03d} {label} → "
+                   f"{_red('NOT FOUND')}: {reason or 'no document'} · {dur}")
+        _emit("part_done", idx=bom_idx, label=label, status=status,
+              files=[str(f) for f in saved])
+        return {"saved": saved, "candidates": candidates or []}
+
     # ── 1) CONFIDENT catalog hit first — exact part number in the filename, the
     #       part number found INSIDE a catalog PDF, or an explicit catalog_map
     #       pin. These identify the part with certainty, so use them and skip
@@ -3841,10 +3965,7 @@ def _download_part_impl(bom_idx, mfr, model, folder, max_dl, session, desc="", f
     cat = _catalog_fallback(bom_idx, mfr, model, folder, desc, label, max_dl,
                             session, confident_only=True)
     if cat:
-        tprint(f"    [{label}] {_green('Found in catalog')} — skipping web search")
-        _emit("part_done", idx=bom_idx, label=label, status="found",
-              files=[str(f) for f in cat])
-        return {"saved": cat, "candidates": []}
+        return _finish("found", cat, source="catalog", doc_types="catalog match")
 
     # ── 2) Online search ──────────────────────────────────────────────────────
     candidates = _find_pdfs(model, mfr, session, desc, force=force)
@@ -3855,29 +3976,31 @@ def _download_part_impl(bom_idx, mfr, model, folder, max_dl, session, desc="", f
         #    datasheets.
         cat = _catalog_fallback(bom_idx, mfr, model, folder, desc, label, max_dl, session)
         if cat:
-            tprint(f"    [{label}] {_yellow('Using closest catalog match')} "
-                   f"(no online result — please verify)")
-            _emit("part_done", idx=bom_idx, label=label, status="found",
-                  files=[str(f) for f in cat])
-            return {"saved": cat, "candidates": []}
-        tprint(f"    [{label}] {_red('No URLs found')}")
-        _emit("part_done", idx=bom_idx, label=label, status="not_found", files=[])
-        return {"saved": [], "candidates": []}
+            return _finish("found", cat, source="catalog",
+                           doc_types="closest catalog match (verify)")
+        note = _backend_status_note()
+        reason = "no candidate URLs found"
+        if note:
+            reason += f" ({note})"
+        return _finish("not_found", [], reason=reason)
 
     safe = _sanitize(label.replace(" ", "_"))
-    accepted = []          # list of (quality, Path, doc_type)
+    accepted = []          # list of (quality, Path, doc_type, source, url)
     attempts = 0           # network downloads actually performed
     have_manual = False
+    reject_reasons = []    # short labels of why candidates were rejected
 
     def _try_candidate(item, pos):
-        """Download + verify one candidate. Returns (q, path, dtype) or None."""
+        """Download + verify one candidate. Returns (q, path, dtype, source, url)
+        or None."""
         nonlocal attempts
         if _is_cancelled():
             return None
         url, title, ref = item["url"], item["title"], item.get("referer")
+        source = item.get("source")
         dest = candidate_dest(folder, bom_idx, mfr, model, title)
         name_hint = _name_doc_type(url, title)
-        if any(p == dest for _q, p, _t in accepted):
+        if any(a[1] == dest for a in accepted):
             return None                      # same filename already accepted
         if dest.exists():
             tprint(f"    [{label}] Re-checking existing: {dest.name}")
@@ -3891,22 +4014,25 @@ def _download_part_impl(bom_idx, mfr, model, folder, max_dl, session, desc="", f
         ok_prot, prot_note = _ensure_unprotected(dest)
         if not ok_prot:
             tprint(f"         {_red('Rejected:')} {prot_note}")
+            reject_reasons.append("locked/encrypted")
             try: dest.unlink()
             except Exception: pass
             return None
         if prot_note:
             tprint(f"         {prot_note}")
         if not VERIFY_CONTENT:
-            return (1, dest, "unverified")
+            return (1, dest, "unverified", source, url)
         dtype, q, note = _verify_pdf(dest, model, mfr, name_hint,
                                      src_url=url, src_title=title, desc=desc)
         if dtype in _REJECT_TYPES or (dtype == "datasheet" and not ACCEPT_DATASHEETS):
-            tprint(f"         {_red('Rejected:')} {_REJECT_LABEL.get(dtype, dtype)}  [{note}]")
+            rlabel = _REJECT_LABEL.get(dtype, dtype)
+            tprint(f"         {_red('Rejected:')} {rlabel}  [{note}]")
+            reject_reasons.append(rlabel)
             try: dest.unlink()
             except Exception: pass
             return None
         tprint(f"         {_green('Verified:')} {dtype.upper()}  [{note}]")
-        return (q, dest, dtype)
+        return (q, dest, dtype, source, url)
 
     # ── Phase 1: fill the quota with SOLID docs, stop early ──────────────────
     # 'unknown' verifications are provisional: kept as a last-resort fallback,
@@ -3914,7 +4040,7 @@ def _download_part_impl(bom_idx, mfr, model, folder, max_dl, session, desc="", f
     # manual/datasheet (still bounded by VERIFY_MAX_ATTEMPTS).
     SOLID = ("manual", "datasheet", "scanned", "unverified")
     def _solid_count():
-        return sum(1 for _q, _p, t in accepted if t in SOLID)
+        return sum(1 for a in accepted if a[2] in SOLID)
 
     manual_named_later = []      # (pos, item) — saved for the upgrade hunt
     for pos, item in enumerate(candidates, 1):
@@ -3970,23 +4096,30 @@ def _download_part_impl(bom_idx, mfr, model, folder, max_dl, session, desc="", f
     # Keep the best max_dl files (manual > solid datasheet/scan > unknown)
     accepted.sort(key=lambda t: (t[2] == "manual", t[2] in SOLID, t[0]), reverse=True)
     keep, surplus = accepted[:max_dl], accepted[max_dl:]
-    for _q, p, _t in surplus:
-        try: p.unlink()
+    for a in surplus:
+        try: a[1].unlink()
         except Exception: pass
-    saved = [p for _q, p, _t in keep]
+    saved = [a[1] for a in keep]
 
-    if saved and VERIFY_CONTENT:
-        kinds = ", ".join(t.upper() for _q, _p, t in keep)
-        tprint(f"    [{label}] {_green('Kept:')} {kinds}  ({attempts} download(s))")
-    elif not saved:
-        # Catalog was already tried first, so there's nothing left to fall back
-        # to here — just report the web result.
-        tprint(f"    [{label}] {_yellow('No verified manual/datasheet')} "
-               f"— {len(candidates)} URL(s) checked")
-    _emit("part_done", idx=bom_idx, label=label,
-          status="found" if saved else "not_found",
-          files=[str(f) for f in saved])
-    return {"saved": saved, "candidates": candidates}
+    if saved:
+        kinds  = ", ".join(a[2].upper() for a in keep)
+        source = keep[0][3]
+        return _finish("found", saved, source=source, doc_types=kinds,
+                       downloads=attempts, candidates=candidates)
+
+    # Nothing verified. Summarise WHY from the rejection reasons collected above.
+    if reject_reasons:
+        counts = defaultdict(int)
+        for rr in reject_reasons:
+            counts[rr] += 1
+        detail = ", ".join(f"{k} ×{v}" if v > 1 else k
+                           for k, v in sorted(counts.items(),
+                                              key=lambda kv: kv[1], reverse=True))
+        reason = f"{len(candidates)} URL(s) checked, all rejected ({detail})"
+    else:
+        reason = f"{len(candidates)} URL(s) checked, none verified"
+    return _finish("not_found", [], reason=reason,
+                   downloads=attempts, candidates=candidates)
 
 # =============================================================================
 #  PDF PAGE BUILDERS
