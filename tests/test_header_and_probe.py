@@ -119,3 +119,22 @@ rows2 = [
 assert bd._rows_to_parts(rows2)[0]["manufacturer"] == ""
 
 print("OK3")
+
+# ── Bug 5: a generic brochure on the maker's own site short-circuits search ────
+# hima.com hosts only marketing brochures ("A New Dimension of Performance…"),
+# not the F-module manuals (those live on mirror sites). Treating a brochure as
+# "the official doc found" made the app skip the mirror tier and report the part
+# not-found. _own_doc_identifies must reject brochures but accept real docs.
+brochure_url   = "https://www.hima.com/sharepoint-sync/PDFs/HIQuad+X/HIMA_Brochure.pdf"
+brochure_title = "A New Dimension of Performance for Your Safety System"
+assert not bd._own_doc_identifies(brochure_url, brochure_title, "F-CPU 01")
+
+# part number present in the title → identifying
+assert bd._own_doc_identifies("https://www.hima.com/x.pdf", "F-CPU 01 module manual", "F-CPU 01")
+# explicit manual/datasheet filename → identifying even without the part number
+assert bd._own_doc_identifies("https://www.moxa.com/eds-316-installation-manual.pdf",
+                              "EDS-316 Series User Manual", "EDS-316-SS-SC-T")
+# a bare datasheet-named file → identifying
+assert bd._own_doc_identifies("https://site/1206421_datasheet.pdf", "", "1206421")
+
+print("OK4")

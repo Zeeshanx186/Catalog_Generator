@@ -2410,6 +2410,18 @@ def _rank_candidates(direct, model, mfr, desc):
             for u, v, _s, _t in good[:10]]
 
 
+def _own_doc_identifies(url, title, model):
+    """True when a PDF on the manufacturer's OWN domain is plausibly THIS part's
+    document — the part number appears in the URL/title, or the filename/title is
+    an explicit manual or datasheet. Generic marketing brochures ('A New
+    Dimension of Performance for Your Safety System') identify no specific part
+    and return False. Only an identifying own-site doc may short-circuit the
+    search; otherwise a hima.com flyer buries the real manuals that live on
+    third-party mirror sites (the HIMA family-query tier)."""
+    return (_model_in_text(url, model) or _model_in_text(title or "", model)
+            or _name_doc_type(url, title) in ("manual", "datasheet"))
+
+
 def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
     """no_trust=True disables the 'official doc found — skip search engines'
     short-circuit. Used by the rescue pass when every trusted candidate failed
@@ -2553,10 +2565,17 @@ def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
         if direct:
             tprint(f"    [SiteSearch:{doc_site}] {len(direct)} candidate(s)")
             own_site_docs = [u for u in direct if _is_own_mfr_domain(u, mfr) or (doc_site and doc_site in _dom(u))]
-            if own_site_docs:
+            # Only an own-site doc that actually IDENTIFIES this part is a reason
+            # to stop searching. Generic marketing brochures identify nothing;
+            # letting them short-circuit is what hid the real HIMA manuals on
+            # mirror sites behind a hima.com flyer. no_trust (rescue pass) never
+            # short-circuits here.
+            identifying = [u for u in own_site_docs
+                           if _own_doc_identifies(u, direct[u]["title"], model)]
+            if identifying and not no_trust:
                 has_official_manual = any(_name_doc_type(u, direct[u]["title"]) == "manual"
-                                          for u in own_site_docs)
-                tprint(f"    [SiteSearch] {pf}: {len(own_site_docs)} official doc(s) found — skipping further search")
+                                          for u in identifying)
+                tprint(f"    [SiteSearch] {pf}: {len(identifying)} official doc(s) found — skipping further search")
                 if (not has_official_manual and PREFER_MANUALS and not _is_cancelled()
                         and (_ddg_budget_left() or _any_search_backend_ready())):
                     try:
@@ -2568,12 +2587,19 @@ def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
                     except Exception:
                         pass
                 return _rank_candidates(direct, model, mfr, desc)
+            if own_site_docs and not identifying:
+                tprint(f"    [SiteSearch:{doc_site}] {pf}: only non-specific "
+                       f"brochure(s) on the maker's site — continuing to mirror/broad search")
 
     # ── Tier 3.5: HIMA-specific multi-query search ───────────────────────────
     # HIMA module names ("F-BASE RACK 01") don't appear verbatim in docs.
     # We generate product-family-aware queries to find the right manuals.
     gen_pages = []   # shared page list used by Tier 3.5 and Tier 5
-    if mfr and "HIMA" in mfr.upper() and not direct:
+    # Run the HIMA mirror tier whenever nothing IDENTIFYING is in hand yet — a
+    # non-specific brochure left in `direct` by Tier 3 must not block it — or in
+    # the rescue pass.
+    _has_identifying = any(_own_doc_identifies(u, direct[u]["title"], model) for u in direct)
+    if mfr and "HIMA" in mfr.upper() and (not _has_identifying or no_trust):
         for q in _hima_queries(model):
             if _is_cancelled(): break
             for r in _search(q, n=6, force=force, critical=(not direct)):
