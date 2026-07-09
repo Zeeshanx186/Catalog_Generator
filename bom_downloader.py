@@ -161,6 +161,8 @@ def _dim(t):     return _c("2",  t)
 # =============================================================================
 
 TRIP_THRESHOLD = 3
+SOFT_TRIP_THRESHOLD = 6   # transient errors (Zyte 520 / read timeout) tolerated
+                         # before a paid backend is disabled — see record_soft
 
 class CircuitBreaker:
     def __init__(self):
@@ -181,6 +183,23 @@ class CircuitBreaker:
             if self._fails[name] >= TRIP_THRESHOLD and name not in self._tripped:
                 self._tripped.add(name)
                 tprint(f"    [{name}] disabled for this run.")
+
+    def record_soft(self, name, err, trip_at=SOFT_TRIP_THRESHOLD):
+        """Transient failure (Zyte 520 / read timeout / connection reset): logs
+        like record_failure but only trips after `trip_at` accumulated failures
+        instead of TRIP_THRESHOLD. A few blips must NOT disable a paid backend for
+        the whole run — when Zyte gets disabled and it is the only API backend,
+        `_any_search_backend_ready()` goes False and the cascade then fast-skips
+        every part that lands during a DDG rate-limit pause. Any record_success
+        resets the count, so only a sustained outage trips it."""
+        with self._lock:
+            self._fails[name] += 1
+            n = self._logged[name]
+            if n < 2:    tprint(f"    [{name}] {err}"); self._logged[name] += 1
+            elif n == 2: tprint(f"    [{name}] (errors suppressed)"); self._logged[name] += 1
+            if self._fails[name] >= trip_at and name not in self._tripped:
+                self._tripped.add(name)
+                tprint(f"    [{name}] disabled for this run (repeated transient errors).")
 
     def trip(self, name, reason=""):
         """Hard-disable a backend immediately (e.g. on a decisive bot-block 403).
@@ -1367,9 +1386,11 @@ def _zyte_serp(q, n=10):
         return [{"href": i.get("url", ""), "title": i.get("name", "")} for i in res[:n]]
     except Exception as e:
         st = getattr(getattr(e, "response", None), "status_code", None)
-        if st in (401, 403):     # bad key / no credit — trip fast, don't retry all run
-            _cb.record_failure("Zyte", f"HTTP {st}"); _cb.record_failure("Zyte", f"HTTP {st}")
-        _cb.record_failure("Zyte", str(e)[:80]); return []
+        if st in (401, 402, 403):     # bad key / no credit — decisive, disable now
+            _cb.trip("Zyte", f"disabled — HTTP {st} (auth/credit)")
+        else:                          # 520 / read timeout / reset — transient blip
+            _cb.record_soft("Zyte", str(e)[:80])
+        return []
 
 def _zyte_fetch(url, timeout=45):
     """Fetch raw bytes through Zyte's anti-ban proxies — last resort for
@@ -1388,7 +1409,12 @@ def _zyte_fetch(url, timeout=45):
         _cb.record_success("Zyte-fetch")
         return base64.b64decode(body)
     except Exception as e:
-        _cb.record_failure("Zyte-fetch", str(e)[:80]); return None
+        st = getattr(getattr(e, "response", None), "status_code", None)
+        if st in (401, 402, 403):     # bad key / no credit — decisive, disable now
+            _cb.trip("Zyte-fetch", f"disabled — HTTP {st} (auth/credit)")
+        else:                          # transient blip — don't kill it for the run
+            _cb.record_soft("Zyte-fetch", str(e)[:80])
+        return None
 
 def _brave(q,n=10):
     if not _has(BRAVE_API_KEY) or _cb.is_open("Brave"): return []

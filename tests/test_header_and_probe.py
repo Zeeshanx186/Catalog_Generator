@@ -138,3 +138,27 @@ assert bd._own_doc_identifies("https://www.moxa.com/eds-316-installation-manual.
 assert bd._own_doc_identifies("https://site/1206421_datasheet.pdf", "", "1206421")
 
 print("OK4")
+
+# ── Bug 6: transient Zyte blips must not disable it for the whole run ──────────
+# 3 transient 520/timeout errors used to trip Zyte (TRIP_THRESHOLD), and once
+# the only API backend is down the cascade fast-skips every part during a DDG
+# rate-limit pause (the Schneider A9F44xxx "cooling down — skipping" batch).
+cb = bd.CircuitBreaker()
+for _ in range(bd.TRIP_THRESHOLD + 1):        # more than the HARD threshold
+    cb.record_soft("Zyte", "520 blip")
+assert not cb.is_open("Zyte"), "transient blips tripped Zyte too early"
+
+# a success clears the transient count
+cb.record_success("Zyte")
+for _ in range(bd.SOFT_TRIP_THRESHOLD - 1):
+    cb.record_soft("Zyte", "520 blip")
+assert not cb.is_open("Zyte")
+cb.record_soft("Zyte", "520 blip")            # crosses SOFT_TRIP_THRESHOLD
+assert cb.is_open("Zyte"), "sustained outage should still disable Zyte"
+
+# decisive auth/credit error disables immediately
+cb2 = bd.CircuitBreaker()
+cb2.trip("Zyte", "HTTP 401")
+assert cb2.is_open("Zyte")
+
+print("OK5")
