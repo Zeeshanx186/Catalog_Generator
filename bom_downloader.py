@@ -1175,17 +1175,18 @@ def _rittal_portal(model, mfr, session, force=False):
                f"for {model} ({suffix})")
         return found
 
-    # NOTHING from the deterministic datasheet — this is the part's one shot
-    # at finding anything via the portal, so spend the DDG budget here if any
-    # remains and search engines aren't paused/exhausted (force= bypasses the
-    # pause for interactive re-search, but never the budget/cancel checks).
+    # NOTHING from the deterministic datasheet — this is the part's one shot at
+    # finding the product page via search. Prefer an API backend (Zyte/SerpApi)
+    # which isn't subject to the DDG lock or rate-limit pause; fall back to the
+    # DDG budget only when no API backend is ready. force= bypasses the pause for
+    # interactive re-search, but never the cancel/stop checks.
     page_url = None
     ddg_paused = (not force) and time.monotonic() < _DDG_PAUSED_UNTIL[0]
-    if (_ddg_budget_left() and not _is_cancelled() and not _should_stop_search()
-            and not ddg_paused):
+    if (((_ddg_budget_left() and not ddg_paused) or _any_search_backend_ready())
+            and not _is_cancelled() and not _should_stop_search()):
         _td = time.monotonic()
         try:
-            for res in _ddg(f"rittal.com com-en products {nd}", n=6, force=force, critical=True):
+            for res in _search(f"rittal.com com-en products {nd}", n=6, force=force, critical=True):
                 u = (res.get("href") or "").strip()
                 if "rittal.com" in u and "/products/" in u and nd in u:
                     page_url = u
@@ -2485,9 +2486,9 @@ def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
                f"— skipping search engines")
         _add(_component_db_docs(model, mfr))
         if (not has_official_manual and PREFER_MANUALS and not _is_cancelled()
-                and _ddg_budget_left()):
+                and (_ddg_budget_left() or _any_search_backend_ready())):
             try:
-                for r in _ddg(f'"{model}" {mfr} manual', n=6, force=force):
+                for r in _search(f'"{model}" {mfr} manual', n=6, force=force):
                     url = (r.get("href") or "").strip()
                     title = (r.get("title") or "").strip()
                     if url and _is_pdf_url(url) and _relevant(url, title, model, mfr):
@@ -2516,9 +2517,13 @@ def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
 
     tprint(f"    [Search] {pf}: no official docs yet — querying search engines…")
 
-    # ── Tier 3: Manufacturer-portal site-specific DDG search ─────────────────
-    # DDG honours site: — searching literature.rockwellautomation.com directly
-    # returns exact documents rather than random distributor pages.
+    # ── Tier 3: Manufacturer-portal site-specific search ─────────────────────
+    # site: — searching literature.rockwellautomation.com directly returns exact
+    # documents rather than random distributor pages. Routed through _search()
+    # so an API backend (Zyte's real-Google SERP, or SerpApi) handles these in
+    # parallel — Google honours site: better than DDG anyway — instead of every
+    # part serialising on the single global DDG lock. DDG stays the last-resort
+    # fallback when no API backend is configured.
     doc_site = _mfr_doc_site(mfr)
     if doc_site:
         ms = re.sub(r'[-_\s.]+', '', model)
@@ -2531,7 +2536,7 @@ def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
         for q in site_qs:
             if _is_cancelled(): return []
             if _out_of_budget(): return _rank_candidates(direct, model, mfr, desc)
-            for r in _ddg(q, n=8, force=force, critical=(not direct)):          # bypass _search so DDG always runs here
+            for r in _search(q, n=8, force=force, critical=(not direct)):       # cascade: API backend first, DDG last
                 url = r.get("href", "").strip(); title = r.get("title", "").strip()
                 if not url: continue
                 if _is_pdf_url(url) and _relevant(url, title, model, mfr):
@@ -2553,9 +2558,9 @@ def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
                                           for u in own_site_docs)
                 tprint(f"    [SiteSearch] {pf}: {len(own_site_docs)} official doc(s) found — skipping further search")
                 if (not has_official_manual and PREFER_MANUALS and not _is_cancelled()
-                        and _ddg_budget_left()):
+                        and (_ddg_budget_left() or _any_search_backend_ready())):
                     try:
-                        for r in _ddg(f'"{model}" {mfr} manual', n=6, force=force):
+                        for r in _search(f'"{model}" {mfr} manual', n=6, force=force):
                             url = (r.get("href") or "").strip()
                             title = (r.get("title") or "").strip()
                             if url and _is_pdf_url(url) and _relevant(url, title, model, mfr):
@@ -2571,7 +2576,7 @@ def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
     if mfr and "HIMA" in mfr.upper() and not direct:
         for q in _hima_queries(model):
             if _is_cancelled(): break
-            for r in _ddg(q, n=6, force=force, critical=(not direct)):
+            for r in _search(q, n=6, force=force, critical=(not direct)):
                 url = r.get("href", "").strip(); title = r.get("title", "").strip()
                 if not url: continue
                 if _is_pdf_url(url) and _relevant(url, title, model, mfr):
