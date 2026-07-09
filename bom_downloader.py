@@ -33,6 +33,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
 from datetime import datetime
 
+# Windows consoles/redirected pipes default to cp1252 — one exotic character
+# in a BOM cell (e.g. Cyrillic А in a part number) would kill the whole run
+# with UnicodeEncodeError. Never let printing be fatal.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors="replace")
+    except Exception:
+        pass
+
 # ── Dependency check ──────────────────────────────────────────────────────────
 _MISSING = []
 # pyrefly: ignore [missing-import]
@@ -98,6 +107,7 @@ BING_API_KEY   = ""        # RETIRED 2025-08-11 by Microsoft — endpoint return
 TAVILY_API_KEY = ""        # app.tavily.com  (1k free/month)
 EXA_API_KEY    = ""        # dashboard.exa.ai  (1k free/month)
 BRAVE_API_KEY  = ""        # brave.com/search/api  ($3/1k)
+ZYTE_API_KEY   = os.getenv("ZYTE_API_KEY", "")   # zyte.com — Google SERP search + anti-ban fetch fallback for blocked downloads
 
 GDRIVE_API_KEY = ""        # console.cloud.google.com -> "Google Drive API" (free)
                            # OPTIONAL: makes Google Drive catalog listing more
@@ -345,9 +355,16 @@ def _is_cyr(t):
 
 def _looks_like_part(v):
     v = v.strip()
-    return (bool(v) and 2 <= len(v) <= 80
+    if not (v and 2 <= len(v) <= 80
             and not re.fullmatch(r'[\-_/\s\.]+', v)
-            and bool(re.search(r'[A-Za-z0-9]', v)))
+            and re.search(r'[A-Za-z0-9]', v)):
+        return False
+    # A header cell repeated mid-table ("Manufacturer Part No", "Model Number")
+    # is not a part: header vocabulary with no digit anywhere in the cell.
+    if not re.search(r'\d', v) and (_HDR_PART.search(v) or _HDR_MFR.search(v)
+                                    or _HDR_DESC.search(v)):
+        return False
+    return True
 
 def _clean_model(m):
     p = m.split()
@@ -407,9 +424,21 @@ def _model_desc_around_mfr(text: str, m) -> tuple:
         return _clean_model(b), desc
     return after_model, after_desc
 
+# Cyrillic homoglyphs of Latin letters — BOMs typed with a RU keyboard layout
+# contain part numbers like "1756-А10K" (Cyrillic А) that break every search
+# and crash cp1252 console output.
+_CYR_HOMOGLYPHS = str.maketrans("АВЕКМНОРСТХУаеорсух", "ABEKMHOPCTXYaeopcyx")
+
+def _fix_homoglyphs(pn):
+    if re.search(r'[А-Яа-я]', pn) and re.search(r'[A-Za-z0-9]', pn):
+        return pn.translate(_CYR_HOMOGLYPHS)
+    return pn
+
 def _dedup(parts):
     """Filter out invalid part numbers but KEEP duplicates in BOM order —
     the UI flags them and lets the user keep or discard each one."""
+    for p in parts:
+        p["part_number"] = _fix_homoglyphs(p["part_number"])
     return [p for p in parts if _looks_like_part(p["part_number"])]
 
 _HDR_MFR  = re.compile(r'(manufacturer|manuf\b|make\b|mfg|mfr|vendor|supplier|brand|maker|oem)', re.I)
@@ -597,6 +626,26 @@ def _model_in_text(text, model):
         if tn.endswith(mn) and len(tn) > len(mn) and tn[:-len(mn)].isdigit():
             return True
     return False
+
+def _partial_fragments(model):
+    """Fragments of a part number that still IDENTIFY it, for the verifier's
+    partial-match fallback. The shared family prefix is NOT identifying:
+    '1756' appears in every ControlLogix document, so '1756-RM2K' must match
+    on 'RM2K' (or the variant-trimmed 'RM2'), never on '1756' alone —
+    otherwise any family document passes for any module in the family."""
+    toks = [t for t in re.split(r'[-_\s/.]+', model) if len(t) >= 2]
+    mixed = [t for t in toks if re.search(r'[A-Za-z]', t) and re.search(r'\d', t)]
+    base = mixed or [t for t in toks if len(t) >= 4] or toks
+    frags = []
+    for t in base:
+        frags.append(t)
+        # Trim trailing option letters one at a time (1756-A10K → A10, the
+        # catalog number the family doc actually lists; K = conformal coating)
+        c = t
+        while len(c) > 3 and c[-1].isalpha() and any(ch.isdigit() for ch in c):
+            c = c[:-1]
+            frags.append(c)
+    return frags[:6]
 
 # ── PDF ───────────────────────────────────────────────────────────────────────
 def _extract_pdf(path):
@@ -909,9 +958,22 @@ def _probe_url_list(url_title_pairs, session):
             r = session.head(url, timeout=5, allow_redirects=True,
                              headers={"User-Agent": BROWSER_UA})
             if r.status_code == 200:
-                ct = r.headers.get("Content-Type", "")
-                if "pdf" in ct.lower() or _is_pdf_url(url):
+                ct = (r.headers.get("Content-Type") or "").lower()
+                if "pdf" in ct:
                     return {"url": url, "title": title, "referer": None}
+                if _is_pdf_url(url):
+                    # A .pdf-named URL served as text/html is usually a catalog
+                    # page or soft-404 (catalog.weidmueller.com answers HEAD 200
+                    # text/html for assets it doesn't have) — trusting it here
+                    # creates a phantom "official doc" that suppresses the whole
+                    # search-engine cascade. Byte-sniff before believing it.
+                    if "html" not in ct and "text" not in ct:
+                        return {"url": url, "title": title, "referer": None}
+                    head = _get_first_bytes(url, session,
+                                            {"User-Agent": BROWSER_UA, "Range": "bytes=0-1023"},
+                                            n=512, total_budget=8)
+                    if head[:5] == b"%PDF-":
+                        return {"url": url, "title": title, "referer": None}
             elif (r.status_code in (403, 405, 501)
                   and any(h in url for h in HEAD_BLOCKED_HOSTS)):
                 head = _get_first_bytes(url, session,
@@ -947,7 +1009,13 @@ def make_pooled_session():
     try:
         adapter = requests.adapters.HTTPAdapter(
             pool_connections=50, pool_maxsize=64, pool_block=False,
-            max_retries=requests.adapters.Retry(total=1, backoff_factor=0.3),
+            # respect_retry_after_header=False is load-bearing: urllib3 honours
+            # a 429/503 Retry-After by SLEEPING inside the request — invisible
+            # to `timeout=`, so one rate-limited CDN froze whole probe workers
+            # for 20+ minutes (observed live via py-spy: sleep_for_retry).
+            max_retries=requests.adapters.Retry(
+                total=1, backoff_factor=0.3,
+                respect_retry_after_header=False),
         )
         s.mount("http://", adapter)
         s.mount("https://", adapter)
@@ -1244,6 +1312,50 @@ def _exa(q,n=10):
         return [{"href":i.get("url",""),"title":i.get("title","")} for i in r.json().get("results",[])]
     except Exception as e: _cb.record_failure("Exa",str(e)[:80]); return []
 
+def _zyte_serp(q, n=10):
+    """Google SERP via Zyte API — paid, never rate-limited. Returns the same
+    {href,title} dicts as every other backend."""
+    if not _has(ZYTE_API_KEY) or _cb.is_open("Zyte"): return []
+    try:
+        # NOTE: bare ?q= only — extra params (num=, hl=…) make Zyte's Google
+        # unblocking fail with 520 "website ban". Verified live. A bare 520 is
+        # also intermittent per-request, so one retry before giving up.
+        for attempt in (1, 2):
+            r = requests.post("https://api.zyte.com/v1/extract",
+                auth=(ZYTE_API_KEY, ""),
+                json={"url": f"https://www.google.com/search?q={quote(q)}",
+                      "serp": True},
+                timeout=60)
+            if r.status_code != 520 or attempt == 2:
+                break
+        r.raise_for_status(); _cb.record_success("Zyte")
+        res = (r.json().get("serp") or {}).get("organicResults") or []
+        return [{"href": i.get("url", ""), "title": i.get("name", "")} for i in res[:n]]
+    except Exception as e:
+        st = getattr(getattr(e, "response", None), "status_code", None)
+        if st in (401, 403):     # bad key / no credit — trip fast, don't retry all run
+            _cb.record_failure("Zyte", f"HTTP {st}"); _cb.record_failure("Zyte", f"HTTP {st}")
+        _cb.record_failure("Zyte", str(e)[:80]); return []
+
+def _zyte_fetch(url, timeout=45):
+    """Fetch raw bytes through Zyte's anti-ban proxies — last resort for
+    downloads that 403 on every direct attempt (Akamai-fronted CDNs etc.).
+    Returns bytes or None. Costs credits, so callers must try direct first."""
+    if not _has(ZYTE_API_KEY) or _cb.is_open("Zyte-fetch"): return None
+    try:
+        import base64
+        r = requests.post("https://api.zyte.com/v1/extract",
+            auth=(ZYTE_API_KEY, ""),
+            json={"url": url, "httpResponseBody": True},
+            timeout=timeout)
+        r.raise_for_status()
+        body = r.json().get("httpResponseBody")
+        if not body: return None
+        _cb.record_success("Zyte-fetch")
+        return base64.b64decode(body)
+    except Exception as e:
+        _cb.record_failure("Zyte-fetch", str(e)[:80]); return None
+
 def _brave(q,n=10):
     if not _has(BRAVE_API_KEY) or _cb.is_open("Brave"): return []
     try:
@@ -1386,6 +1498,7 @@ _BACKENDS = [
     ("Exa",        lambda: _has(EXA_API_KEY),                        _exa),
     ("Serper",     lambda: _has(SERPER_API_KEY),                     _serper),
     ("SerpApi",    lambda: _has(SERPAPI_KEY),                        _serpapi),
+    ("Zyte",       lambda: _has(ZYTE_API_KEY),                       _zyte_serp),
     # ("Brave",    lambda: _has(BRAVE_API_KEY),  _brave),  # free tier removed 2026-02 (card required)
     ("DDG", lambda: True, None),   # handler assigned below — ALWAYS the last fallback
 ]
@@ -2263,7 +2376,10 @@ def _rank_candidates(direct, model, mfr, desc):
             for u, v, _s, _t in good[:10]]
 
 
-def _find_pdfs(model, mfr, session, desc="", force=False):
+def _find_pdfs(model, mfr, session, desc="", force=False, no_trust=False):
+    """no_trust=True disables the 'official doc found — skip search engines'
+    short-circuit. Used by the rescue pass when every trusted candidate failed
+    content verification (e.g. hima.com site search returns only a brochure)."""
     if _is_cancelled(): return []
     mfr = _fix_mfr_spelling(mfr)   # 'PHEONIX CONTACT' etc. → canonical spelling
     pf = f"{mfr} {model}".strip() if mfr else model
@@ -2327,7 +2443,7 @@ def _find_pdfs(model, mfr, session, desc="", force=False):
     mirror = [] if own else [(u, v) for u, v in direct.items()
                              if u in probe_urls
                              and _name_doc_type(u, v["title"]) not in _REJECT_TYPES]
-    trusted = own or mirror
+    trusted = (own or mirror) if not no_trust else []
     if trusted:
         has_official_manual = any(_name_doc_type(u, v["title"]) == "manual"
                                   for u, v in trusted)
@@ -2780,6 +2896,19 @@ def _write_pdf(url, dest, session, referer=None):
             except Exception:
                 break
 
+    # Every direct attempt failed (403/blocked/truncated) — one shot through
+    # Zyte's anti-ban proxies before giving up. Direct-first keeps credit
+    # spend limited to downloads that actually need it.
+    if not _is_cancelled():
+        data = _zyte_fetch(url)
+        if (data and data[:5] == b"%PDF-" and len(data) >= 10 * 1024
+                and b"%%EOF" in data[-2048:]):
+            with open(dest, "wb") as f:
+                f.write(data)
+            tprint(f"         [Zyte] direct download blocked — fetched via Zyte API")
+            tprint(f"         {_green('Saved:')} {dest.name}  ({len(data) // 1024} KB)")
+            return True
+
     if dest.exists(): dest.unlink()
     return False
 
@@ -2912,8 +3041,8 @@ def _verify_pdf(path, model, mfr, name_hint=None, src_url="", src_title="", desc
     if _model_in_text(text, mm):
         model_ok = 2
     else:
-        chunks = re.findall(r'[A-Za-z]{2,}|\d{3,}', model)
-        model_ok = 1 if any(_model_in_text(text, c) for c in chunks[:3]) else 0
+        chunks = _partial_fragments(model)
+        model_ok = 1 if any(_model_in_text(text, c) for c in chunks) else 0
         if model_ok == 0 and mfr and "HIMA" in mfr.upper():
             mu_model = model.upper().strip()
             for prefix, families in _HIMA_FAMILIES.items():
@@ -3708,6 +3837,28 @@ def _download_part_impl(bom_idx, mfr, model, folder, max_dl, session, desc="", f
                 accepted.append(res)
                 if res[2] == "manual":
                     break                    # upgrade succeeded
+
+    # ── Phase 3: rescue pass ──────────────────────────────────────────────────
+    # Every candidate failed verification. Usual cause: the trusted short-
+    # circuit stopped at an "official" doc that turned out to be a brochure,
+    # so the search engines were never asked. Ask them now, once.
+    if not accepted and candidates and not _is_cancelled():
+        tried = {c["url"] for c in candidates}
+        more = [c for c in _find_pdfs(model, mfr, session, desc,
+                                      force=force, no_trust=True)
+                if c["url"] not in tried]
+        if more:
+            tprint(f"    [{label}] all candidates failed verification — "
+                   f"rescue search found {len(more)} more")
+            candidates = candidates + more
+            for pos, item in enumerate(more, len(candidates) - len(more) + 1):
+                if _is_cancelled() or attempts >= VERIFY_MAX_ATTEMPTS + 3:
+                    break
+                res = _try_candidate(item, pos)
+                if res:
+                    accepted.append(res)
+                    if _solid_count() >= max_dl:
+                        break
 
     # Keep the best max_dl files (manual > solid datasheet/scan > unknown)
     accepted.sort(key=lambda t: (t[2] == "manual", t[2] in SOLID, t[0]), reverse=True)
