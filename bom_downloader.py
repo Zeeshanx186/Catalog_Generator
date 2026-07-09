@@ -542,6 +542,21 @@ def _infer_cols(rows):
 
     return mc, ([pc] if pc is not None else []), dc, data_start
 
+def _is_datelike(v):
+    """True if v is a date/datetime object, or a string that is ONLY a date or
+    timestamp. openpyxl with data_only=True yields real datetime objects for
+    cells Excel auto-formatted as dates — and a manufacturer/part cell mis-typed
+    as a date (observed: a 'NEEDLE VALVE' row whose maker cell held 2026-03-26)
+    must not be forwarded into the search query as if it were a maker name."""
+    import datetime as _dt
+    if isinstance(v, (_dt.datetime, _dt.date)):
+        return True
+    s = str(v or "").strip()
+    if not s:
+        return False
+    return bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?", s)
+                or re.fullmatch(r"\d{1,2}[/-]\d{1,2}[/-]\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?", s))
+
 def _rows_to_parts(rows):
     if not rows: return []
     cl = lambda v: re.sub(r'\s+', ' ', str(v or '')).strip()
@@ -555,9 +570,15 @@ def _rows_to_parts(rows):
     parts = []
     for row in rows[start:]:
         cells = [cl(c) for c in row]
+        raw_mfr = row[mc] if (mc is not None and mc < len(row)) else None
         for pc in pcs:
             pn   = cells[pc] if pc < len(cells) else ""
             mfr  = cells[mc] if mc is not None and mc < len(cells) else ""
+            # A date in the manufacturer column is a spreadsheet data error, not
+            # a maker — blank it so the part is still searched (without a bogus
+            # '2026-03-26 00:00:00 <part>' query prefix).
+            if mfr and _is_datelike(raw_mfr if raw_mfr is not None else mfr):
+                mfr = ""
             desc = cells[dc] if dc is not None and dc < len(cells) else ""
             if _looks_like_part(pn): parts.append({"manufacturer": mfr, "part_number": pn, "description": desc})
     return parts

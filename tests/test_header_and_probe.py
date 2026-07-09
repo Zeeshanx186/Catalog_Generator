@@ -87,3 +87,35 @@ assert bd._partial_fragments("MTL 5541") == ["5541"]
 assert bd._fix_homoglyphs("1756-А10K") == "1756-A10K"
 
 print("OK2")
+
+# ── Bug 4: a date in the manufacturer column leaks in as the maker name ───────
+# openpyxl (data_only=True) yields real datetime objects for cells Excel auto-
+# formatted as dates. Row 183 of a real BOM had 2026-03-26 where the maker
+# belonged; the app then searched "2026-03-26 00:00:00 60LF4-40/20-SOG".
+import datetime as _dt
+assert bd._is_datelike(_dt.datetime(2026, 3, 26))
+assert bd._is_datelike(_dt.date(2026, 3, 26))
+assert bd._is_datelike("2026-03-26 00:00:00")
+assert bd._is_datelike("26/03/2026")
+assert not bd._is_datelike("AUTOCLAVE")
+assert not bd._is_datelike("60LF4-40/20-SOG")     # part number, not a date
+assert not bd._is_datelike("")
+
+# datetime object in the manufacturer column → part kept, manufacturer blanked
+rows = [
+    ["Manufacturer", "Part Number", "Description"],
+    ["AUTOCLAVE", "30VM4001-SOG", "Needle valve"],
+    [_dt.datetime(2026, 3, 26), "60LF4-40/20-SOG", "Inline filter"],
+]
+parts = bd._rows_to_parts(rows)
+assert [p["part_number"] for p in parts] == ["30VM4001-SOG", "60LF4-40/20-SOG"], parts
+assert parts[1]["manufacturer"] == "", parts[1]
+
+# string form (as it arrives from PDF/docx tables) blanked the same way
+rows2 = [
+    ["Manufacturer", "Part Number", "Description"],
+    ["2026-03-26 00:00:00", "60LF4-40/20-SOG", "Inline filter"],
+]
+assert bd._rows_to_parts(rows2)[0]["manufacturer"] == ""
+
+print("OK3")
