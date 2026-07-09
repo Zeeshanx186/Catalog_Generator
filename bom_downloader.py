@@ -82,6 +82,14 @@ PART_SEARCH_BUDGET = 75      # hard cap (s) on candidate-FINDING per part in bat
                              # Rittal articles whose manual lookup needs a slow
                              # search engine) from grinding for many minutes.
                              # Set to 0/None to disable.
+PART_HARD_DEADLINE = 150     # hard cap (s) on the WHOLE part — finding AND the
+                             # download/verify/rescue phases combined. PART_SEARCH_
+                             # BUDGET only bounds finding; without this, a part
+                             # could then stream up to 11 large PDFs (a 116-page
+                             # 8.6 MB datasheet takes ~20s each) with no wall-clock
+                             # ceiling. This caps the total straggler. Should be
+                             # comfortably larger than PART_SEARCH_BUDGET so normal
+                             # multi-file parts still finish. Set to 0/None to disable.
 RITTAL_TIMING    = True      # print per-phase timing for Rittal parts to the
                              # activity log: datasheet-sniff vs DDG-lookup vs
                              # total. Set False once diagnosis is done.
@@ -1320,12 +1328,16 @@ def _zyte_serp(q, n=10):
         # NOTE: bare ?q= only — extra params (num=, hl=…) make Zyte's Google
         # unblocking fail with 520 "website ban". Verified live. A bare 520 is
         # also intermittent per-request, so one retry before giving up.
+        # timeout=30 (was 60): Zyte's SERP unblock normally answers in <10s; a
+        # request still open at 30s is stuck, and the retry succeeds faster than
+        # waiting out the first. Two 30s attempts cap the worst case at ~60s
+        # instead of the old ~120s that stalled whole parts.
         for attempt in (1, 2):
             r = requests.post("https://api.zyte.com/v1/extract",
                 auth=(ZYTE_API_KEY, ""),
                 json={"url": f"https://www.google.com/search?q={quote(q)}",
                       "serp": True},
-                timeout=60)
+                timeout=30)
             if r.status_code != 520 or attempt == 2:
                 break
         r.raise_for_status(); _cb.record_success("Zyte")
@@ -3727,6 +3739,23 @@ def _download_part_impl(bom_idx, mfr, model, folder, max_dl, session, desc="", f
     prefix = f"{bom_idx:03d}"
     _emit("part_start", idx=bom_idx, label=label)
 
+    # Whole-part wall-clock ceiling (find + download + verify + rescue). The
+    # search phase has its own PART_SEARCH_BUDGET; this bounds everything AFTER
+    # it too, so a part that finds candidates fast but then streams several huge
+    # PDFs can't run for minutes. force= (interactive re-search) opts out.
+    _part_t0 = time.monotonic()
+    _part_deadline_note = [False]     # print the "time limit reached" line once
+    def _part_time_up():
+        if force or not PART_HARD_DEADLINE:
+            return False
+        if (time.monotonic() - _part_t0) > PART_HARD_DEADLINE:
+            if not _part_deadline_note[0]:
+                _part_deadline_note[0] = True
+                tprint(f"    [{label}] {_yellow('part time limit reached')} "
+                       f"({PART_HARD_DEADLINE}s) — stopping with what we have")
+            return True
+        return False
+
     # ── 1) CONFIDENT catalog hit first — exact part number in the filename, the
     #       part number found INSIDE a catalog PDF, or an explicit catalog_map
     #       pin. These identify the part with certainty, so use them and skip
@@ -3811,7 +3840,7 @@ def _download_part_impl(bom_idx, mfr, model, folder, max_dl, session, desc="", f
 
     manual_named_later = []      # (pos, item) — saved for the upgrade hunt
     for pos, item in enumerate(candidates, 1):
-        if _is_cancelled() or attempts >= VERIFY_MAX_ATTEMPTS:
+        if _is_cancelled() or attempts >= VERIFY_MAX_ATTEMPTS or _part_time_up():
             break
         if _solid_count() >= max_dl:
             # Quota full — don't download; just remember manual-named candidates
@@ -3830,7 +3859,7 @@ def _download_part_impl(bom_idx, mfr, model, folder, max_dl, session, desc="", f
     # ── Phase 2: bounded upgrade hunt (datasheet → manual) ───────────────────
     if PREFER_MANUALS and accepted and not have_manual:
         for pos, item in manual_named_later[:MANUAL_HUNT_EXTRA]:
-            if _is_cancelled() or attempts >= VERIFY_MAX_ATTEMPTS:
+            if _is_cancelled() or attempts >= VERIFY_MAX_ATTEMPTS or _part_time_up():
                 break
             res = _try_candidate(item, pos)
             if res:
@@ -3842,7 +3871,7 @@ def _download_part_impl(bom_idx, mfr, model, folder, max_dl, session, desc="", f
     # Every candidate failed verification. Usual cause: the trusted short-
     # circuit stopped at an "official" doc that turned out to be a brochure,
     # so the search engines were never asked. Ask them now, once.
-    if not accepted and candidates and not _is_cancelled():
+    if not accepted and candidates and not _is_cancelled() and not _part_time_up():
         tried = {c["url"] for c in candidates}
         more = [c for c in _find_pdfs(model, mfr, session, desc,
                                       force=force, no_trust=True)
@@ -3852,7 +3881,7 @@ def _download_part_impl(bom_idx, mfr, model, folder, max_dl, session, desc="", f
                    f"rescue search found {len(more)} more")
             candidates = candidates + more
             for pos, item in enumerate(more, len(candidates) - len(more) + 1):
-                if _is_cancelled() or attempts >= VERIFY_MAX_ATTEMPTS + 3:
+                if _is_cancelled() or attempts >= VERIFY_MAX_ATTEMPTS + 3 or _part_time_up():
                     break
                 res = _try_candidate(item, pos)
                 if res:
