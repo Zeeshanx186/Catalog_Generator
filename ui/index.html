@@ -16,29 +16,32 @@
     }
 
     :root {
-      --bg: #080d18;
-      --surface: #0f1629;
-      --card: #131e35;
-      --raised: #1a2844;
-      --border: #1e3050;
-      --border-hi: #2d4875;
-      --accent: #f59e0b;
-      --accent-glow: rgba(245, 158, 11, .18);
-      --accent-dim: rgba(245, 158, 11, .08);
-      --green: #10b981;
-      --green-dim: rgba(16, 185, 129, .12);
-      --red: #ef4444;
-      --red-dim: rgba(239, 68, 68, .12);
-      --blue: #3b82f6;
-      --blue-dim: rgba(59, 130, 246, .12);
-      --text: #e2e8f0;
-      --muted: #64748b;
-      --faint: #1e293b;
+      /* Neutral slate surfaces (less blue cast) + a disciplined, muted gold
+         accent used sparingly. Semantic green/amber/red carry state. */
+      --bg: #0a0d13;
+      --surface: #0e121b;
+      --card: #141924;
+      --raised: #1b212e;
+      --border: #232a38;
+      --border-hi: #333c4e;
+      --accent: #e3a733;
+      --accent-glow: rgba(227, 167, 51, .16);
+      --accent-dim: rgba(227, 167, 51, .09);
+      --green: #31c08a;
+      --green-dim: rgba(49, 192, 138, .12);
+      --red: #e5565b;
+      --red-dim: rgba(229, 86, 91, .12);
+      --blue: #5b8def;
+      --blue-dim: rgba(91, 141, 239, .12);
+      --text: #eaeef5;
+      --dim: #a4b1c4;
+      --muted: #6a778c;
+      --faint: #1a2130;
       --ui: 'Segoe UI', system-ui, -apple-system, sans-serif;
       --mono: 'Consolas', 'Courier New', monospace;
-      --r: 8px;
-      --r-sm: 4px;
-      --r-lg: 14px;
+      --r: 9px;
+      --r-sm: 6px;
+      --r-lg: 13px;
     }
 
     html,
@@ -123,24 +126,38 @@
       flex: 1;
     }
 
+    .steps-nav { padding: 20px 12px; }
+
     .step-item {
       display: flex;
       align-items: flex-start;
       gap: 12px;
-      padding: 10px 20px;
+      padding: 11px 12px;
+      margin-bottom: 2px;
+      border-radius: 10px;
       cursor: default;
-      opacity: .4;
-      transition: opacity .2s;
+      transition: background .15s;
       position: relative;
     }
 
+    .step-item .step-title { color: var(--muted); }
+
     .step-item.active {
-      opacity: 1;
+      background: var(--accent-dim);
+      box-shadow: inset 0 0 0 1px var(--accent-glow);
     }
 
-    .step-item.done {
-      opacity: .7;
+    .step-item.active::before {
+      content: "";
+      position: absolute;
+      left: 0; top: 10px; bottom: 10px;
+      width: 3px; border-radius: 3px;
+      background: var(--accent);
     }
+
+    .step-item.active .step-title { color: var(--text); }
+
+    .step-item.done .step-title { color: var(--dim); }
 
     .step-item.done .step-num {
       background: var(--green);
@@ -162,14 +179,7 @@
       color: #000;
     }
 
-    .step-connector {
-      position: absolute;
-      left: 36px;
-      top: -10px;
-      width: 1px;
-      height: 10px;
-      background: var(--border);
-    }
+    .step-connector { display: none; }
 
     .step-num {
       width: 24px;
@@ -231,9 +241,9 @@
       display: none;
       flex-direction: column;
       flex: 1;
-      padding: 36px 40px;
+      padding: 40px 44px;
       width: 100%;
-      max-width: 1240px;
+      max-width: 1120px;
       margin: 0 auto;
     }
 
@@ -246,16 +256,37 @@
       margin-bottom: 28px;
     }
 
-    .panel-hdr h1 {
-      font-size: 22px;
+    .panel-hdr .eyebrow {
+      font-size: 11px;
       font-weight: 700;
+      letter-spacing: 1.6px;
+      text-transform: uppercase;
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 11px;
+    }
+
+    .panel-hdr .eyebrow::after {
+      content: "";
+      height: 1px;
+      flex: 1;
+      max-width: 320px;
+      background: linear-gradient(90deg, var(--border), transparent);
+    }
+
+    .panel-hdr h1 {
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -.3px;
       color: var(--text);
-      margin-bottom: 4px;
+      margin-bottom: 6px;
     }
 
     .panel-hdr p {
-      font-size: 13px;
-      color: var(--muted);
+      font-size: 14px;
+      color: var(--dim);
     }
 
     /* ── Input panel ──────────────────────────────────────────────────────────── */
@@ -318,7 +349,7 @@
       width: 52px;
       height: 52px;
       background: var(--accent-dim);
-      border: 1px solid rgba(245, 158, 11, .25);
+      border: 1px solid var(--accent-glow);
       border-radius: var(--r);
       display: flex;
       align-items: center;
@@ -640,15 +671,15 @@
     }
 
     thead th {
-      padding: 10px 14px;
+      padding: 13px 16px;
       text-align: left;
-      font-size: 11px;
-      font-weight: 600;
+      font-size: 10.5px;
+      font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: .07em;
+      letter-spacing: .1em;
       color: var(--muted);
-      background: var(--card);
-      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, var(--raised), var(--card));
+      border-bottom: 1px solid var(--border-hi);
       position: sticky;
       top: 0;
       z-index: 1;
@@ -656,7 +687,7 @@
 
     tbody tr {
       border-bottom: 1px solid var(--faint);
-      transition: background .1s;
+      transition: background .12s, box-shadow .12s;
     }
 
     tbody tr:last-child {
@@ -664,11 +695,11 @@
     }
 
     tbody tr:hover {
-      background: var(--card);
+      background: rgba(255, 255, 255, .025);
     }
 
     tbody td {
-      padding: 8px 14px;
+      padding: 12px 16px;
       font-size: 13px;
       vertical-align: middle;
     }
@@ -789,15 +820,24 @@
     }
 
     .part-card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: var(--r);
-      padding: 10px 12px 10px 15px;
+      background:
+        linear-gradient(158deg, rgba(255, 255, 255, .05), rgba(255, 255, 255, .012) 45%),
+        var(--card);
+      border: 1px solid rgba(255, 255, 255, .07);
+      border-radius: 12px;
+      padding: 12px 14px 12px 16px;
       position: relative;
-      transition: border-color .2s;
       display: flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 3px;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, .32), inset 0 1px 0 rgba(255, 255, 255, .05);
+      transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+    }
+
+    .part-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 28px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .08);
+      border-color: rgba(255, 255, 255, .13);
     }
 
     .part-card::before {
@@ -807,33 +847,40 @@
       top: 0;
       bottom: 0;
       width: 3px;
-      border-radius: var(--r) 0 0 var(--r);
+      border-radius: 12px 0 0 12px;
       background: var(--border);
-      transition: background .2s;
+      transition: background .2s, box-shadow .2s;
     }
 
     .part-card.searching::before {
       background: var(--accent);
+      box-shadow: 0 0 14px rgba(227, 167, 51, .55);
     }
 
     .part-card.found::before {
       background: var(--green);
+      box-shadow: 0 0 14px rgba(49, 192, 138, .55);
     }
 
     .part-card.not_found::before {
       background: var(--red);
+      box-shadow: 0 0 14px rgba(229, 86, 91, .55);
     }
 
+    /* State-tinted glass */
     .part-card.searching {
-      border-color: rgba(245, 158, 11, .3);
+      border-color: rgba(227, 167, 51, .28);
+      background: linear-gradient(158deg, rgba(227, 167, 51, .07), rgba(255, 255, 255, .012) 45%), var(--card);
     }
 
     .part-card.found {
-      border-color: rgba(16, 185, 129, .3);
+      border-color: rgba(49, 192, 138, .26);
+      background: linear-gradient(158deg, rgba(49, 192, 138, .07), rgba(255, 255, 255, .012) 45%), var(--card);
     }
 
     .part-card.not_found {
-      border-color: rgba(239, 68, 68, .25);
+      border-color: rgba(229, 86, 91, .26);
+      background: linear-gradient(158deg, rgba(229, 86, 91, .07), rgba(255, 255, 255, .012) 45%), var(--card);
     }
 
     /* Card header row: status pill + index */
@@ -993,24 +1040,25 @@
 
     /* Inline Open button — part of card flow, not floating */
     .card-open-btn {
-      margin-top: 6px;
+      margin-top: 8px;
       align-self: flex-start;
       background: var(--green-dim);
-      border: 1px solid rgba(16, 185, 129, .3);
+      border: 1px solid rgba(49, 192, 138, .32);
       border-radius: var(--r-sm);
       color: var(--green);
       cursor: pointer;
-      padding: 4px 10px;
+      padding: 5px 11px;
       font-size: 10px;
       font-weight: 600;
       display: flex;
       align-items: center;
       gap: 4px;
-      transition: background .15s;
+      transition: background .15s, box-shadow .15s;
     }
 
     .card-open-btn:hover {
-      background: rgba(16, 185, 129, .22);
+      background: rgba(49, 192, 138, .2);
+      box-shadow: 0 0 0 1px rgba(49, 192, 138, .35);
     }
 
     .card-open-btn svg {
@@ -1126,15 +1174,15 @@
     }
 
     .stat-card.green {
-      border-color: rgba(16, 185, 129, .3);
+      border-color: rgba(49, 192, 138, .32);
     }
 
     .stat-card.red {
-      border-color: rgba(239, 68, 68, .25);
+      border-color: rgba(229, 86, 91, .3);
     }
 
     .stat-card.amber {
-      border-color: rgba(245, 158, 11, .3);
+      border-color: rgba(227, 167, 51, .32);
     }
 
     .stat-num {
@@ -1173,35 +1221,40 @@
       flex: 1;
       overflow-y: auto;
       border: 1px solid var(--border);
-      border-radius: var(--r);
+      border-radius: var(--r-lg);
       background: var(--surface);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, .28);
     }
 
     .res-status {
       display: inline-flex;
       align-items: center;
       gap: 5px;
-      font-size: 11px;
+      font-size: 10.5px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: .06em;
-      padding: 3px 8px;
+      padding: 4px 10px;
       border-radius: 999px;
+      border: 1px solid transparent;
     }
 
     .res-status.found {
       color: var(--green);
       background: var(--green-dim);
+      border-color: rgba(49, 192, 138, .35);
     }
 
     .res-status.skipped {
       background: rgba(148, 163, 184, .12);
       color: var(--muted);
+      border-color: rgba(148, 163, 184, .25);
     }
 
     .res-status.not_found {
       color: var(--red);
       background: var(--red-dim);
+      border-color: rgba(229, 86, 91, .35);
     }
 
     /* ── Toasts ──────────────────────────────────────────────────────────────── */
@@ -1867,6 +1920,7 @@
       <!-- ══ Panel 1: Input ═══════════════════════════════════════════════════ -->
       <section class="panel active" id="panel-input">
         <div class="panel-hdr">
+          <div class="eyebrow">Step 1 — Input</div>
           <h1>Load Your Parts</h1>
           <p>Drop a BOM document or a structured parts file to get started.</p>
         </div>
@@ -1956,6 +2010,7 @@
       <!-- ══ Panel 2: Parts review ═════════════════════════════════════════════ -->
       <section class="panel" id="panel-parts">
         <div class="panel-hdr">
+          <div class="eyebrow">Step 2 — Parts</div>
           <h1>Review Parts</h1>
           <p>Edit, add or remove parts before downloading. Configure output settings below.</p>
         </div>
@@ -2082,6 +2137,7 @@
       <!-- ══ Panel 3: Download progress ════════════════════════════════════════ -->
       <section class="panel" id="panel-download">
         <div class="panel-hdr">
+          <div class="eyebrow">Step 3 — Download</div>
           <h1>Downloading Manuals</h1>
           <p id="dl-subtitle">Searching and fetching PDF documents for each part…</p>
         </div>
@@ -2092,6 +2148,41 @@
             <div class="progress-bar-fill" id="dl-bar"></div>
           </div>
           <span class="progress-fraction" id="dl-fraction">0 / 0</span>
+        </div>
+
+        <div class="results-stats dl-stats">
+          <div class="stat-card green">
+            <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polyline points="20 6 9 17 4 12" />
+              </svg></div>
+            <div class="stat-num" id="dl-found">0</div>
+            <div>
+              <div style="font-weight:600;font-size:13px;">Found</div>
+              <div class="stat-text">Manuals downloaded</div>
+            </div>
+          </div>
+          <div class="stat-card red">
+            <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg></div>
+            <div class="stat-num" id="dl-notfound">0</div>
+            <div>
+              <div style="font-weight:600;font-size:13px;">Not found</div>
+              <div class="stat-text">No document located</div>
+            </div>
+          </div>
+          <div class="stat-card amber">
+            <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="9" />
+                <polyline points="12 7 12 12 15 14" />
+              </svg></div>
+            <div class="stat-num" id="dl-remaining">0</div>
+            <div>
+              <div style="font-weight:600;font-size:13px;">Remaining</div>
+              <div class="stat-text">Still to process</div>
+            </div>
+          </div>
         </div>
 
         <div class="parts-grid" id="dl-grid"></div>
@@ -2138,6 +2229,7 @@
       <!-- ══ Tool panel: Merge PDFs (standalone utility) ═══════════════════════ -->
       <section class="panel" id="panel-merge">
         <div class="panel-hdr">
+          <div class="eyebrow">Tool — Merge</div>
           <h1>Merge PDFs</h1>
           <p>Combine any PDF files into a single document — works independently of the download workflow.</p>
         </div>
@@ -2209,6 +2301,7 @@
       <!-- ══ Panel 4: Results ══════════════════════════════════════════════════ -->
       <section class="panel" id="panel-results">
         <div class="panel-hdr">
+          <div class="eyebrow">Step 4 — Results</div>
           <h1 id="res-title">Done</h1>
           <p id="res-subtitle">Your manuals package is ready.</p>
         </div>
@@ -2804,6 +2897,9 @@
       document.getElementById('dl-label').textContent = 'Starting…';
       document.getElementById('dl-fraction').textContent = `0 / ${validParts.length}`;
       document.getElementById('dl-bar').style.width = '0%';
+      document.getElementById('dl-found').textContent = '0';
+      document.getElementById('dl-notfound').textContent = '0';
+      document.getElementById('dl-remaining').textContent = validParts.length;
       document.getElementById('dl-subtitle').textContent =
         'Searching manufacturer sites first, then verifying every PDF is a genuine manual…';
 
@@ -2887,6 +2983,9 @@
       const pct = Math.round((done / total) * 100);
       document.getElementById('dl-bar').style.width = pct + '%';
       document.getElementById('dl-fraction').textContent = `${done} / ${total}`;
+      document.getElementById('dl-found').textContent = prog.found || 0;
+      document.getElementById('dl-notfound').textContent = prog.not_found || 0;
+      document.getElementById('dl-remaining').textContent = Math.max(0, total - done);
       document.getElementById('dl-label').textContent =
         prog.status === 'merging' ? 'Merging PDFs…' :
           prog.status === 'running' ? `Downloading… (${prog.found} found so far)` :
