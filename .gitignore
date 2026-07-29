@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 __pycache__/
 *.pyc
 *.pyo
@@ -14,3 +14,10 @@ dist/
 !BomDownloader.spec
 pyproject.toml
 installer.iss
+
+# Runtime & Scratch
+manuals/
+scratchpad/
+~$*.xlsx
+.claude/
+
